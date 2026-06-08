@@ -39,3 +39,16 @@ class EmailAlreadyExistsError(Exception):
 
 class AccountLockedError(Exception):
     """Raised when an account is temporarily locked after too many failed login attempts."""
+
+
+class TenantNotFoundError(Exception):
+    """Raised when a referenced tenant_id does not exist or is not active."""
+
+
+class UserCreationNotAllowedError(Exception):
+    """
+    Raised when a user-creation request violates the role/ownership rules
+    from US-018 (e.g. staff trying to create accounts, a business_admin
+    trying to mint a saas_admin, or the one-time saas_admin bootstrap
+    being attempted while a platform owner already exists).
+    """

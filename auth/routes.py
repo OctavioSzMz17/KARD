@@ -1,20 +1,23 @@
 """
-Authentication endpoints (Rules.md section 9 — routes stay thin):
+Authentication & identity endpoints (Rules.md section 9 — routes stay thin):
 
-  POST /api/v1/auth/register — create a new tenant + its admin user
-  POST /api/v1/auth/login    — authenticate by email/password
+  POST /api/v1/auth/users — create a user, assigned to a tenant + role (US-018)
+  POST /api/v1/auth/login — authenticate by email/password (US-001)
 
 Routes only: parse/validate the request (via Pydantic models), resolve
-the DB session, delegate to `AuthService`, and return its result. All
-business logic — uniqueness checks, hashing, lockouts, token shape —
-lives in the service layer.
+the DB session and (optional) caller identity, delegate to `AuthService`,
+and return its result. All business/authorization logic — uniqueness
+checks, role rules, hashing, lockouts, token shape — lives in the
+service layer.
 """
 
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
+from typing import Optional
 
-from auth.models import LoginRequest, RegisterRequest, TokenResponse
+from auth.models import CreateUserRequest, LoginRequest, TokenResponse, UserResponse
 from auth.service import AuthService
+from core.dependencies import CurrentUser, get_optional_current_user
 from db.database import get_db
 
 router = APIRouter()
@@ -29,13 +32,24 @@ def _client_ip(request: Request) -> str | None:
 
 
 @router.post(
-    "/register",
-    response_model=TokenResponse,
+    "/users",
+    response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Register a new business (tenant) and its admin user",
+    summary="Create a user and assign it to a tenant + role (US-018)",
 )
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    return AuthService(db).register(payload)
+def create_user(
+    payload: CreateUserRequest,
+    current_user: Optional[CurrentUser] = Depends(get_optional_current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    """
+    Authentication is *optional* at the route level on purpose: the
+    one-time saas_admin bootstrap must work for an anonymous caller,
+    while every other combination (business_admin/staff, by a
+    saas_admin or business_admin) requires one. `AuthService.create_user`
+    enforces exactly which combinations are legal.
+    """
+    return AuthService(db).create_user(payload, current_user)
 
 
 @router.post(

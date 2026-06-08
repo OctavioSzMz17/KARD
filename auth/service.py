@@ -14,12 +14,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from audit_logging.audit import log_auth_event, log_operation
-from auth.models import LoginRequest, RegisterRequest, TokenResponse
+from auth.models import CreateUserRequest, LoginRequest, TokenResponse, UserResponse, UserRole
 from auth.repository import TenantRepository, UserRepository
+from core.dependencies import CurrentUser
 from core.exceptions import (
     AccountLockedError,
     EmailAlreadyExistsError,
     InvalidCredentialsError,
+    TenantNotFoundError,
+    UserCreationNotAllowedError,
 )
 from core.redis_client import get_redis
 from core.security import create_token, hash_password, verify_password
@@ -42,65 +45,105 @@ class AuthService:
         self.users = UserRepository(db)
 
     # ------------------------------------------------------------------
-    # Registration — US-003
+    # User creation — US-018
     # ------------------------------------------------------------------
-    def register(self, payload: RegisterRequest) -> TokenResponse:
+    def create_user(self, payload: CreateUserRequest, current_user: Optional[CurrentUser]) -> UserResponse:
         """
-        Create a new tenant plus its first admin user, atomically.
+        Create a user and assign it to a tenant + role.
 
-        The email must be unique *globally* — across both `tenants.email`
-        and `users.email` — because a single address identifies a single
-        login identity in KARD (Rules.md section 6 / 9).
+        One mechanism, three legitimate shapes (Rules.md section 1.10):
+          - **Bootstrap**: anonymous caller creates the platform's one
+            and only `saas_admin`, but ONLY while none exists yet.
+          - **saas_admin caller**: may create `business_admin`/`staff`
+            for any active tenant they specify (e.g. onboarding a new
+            business right after `POST /saasadmin/tenants`).
+          - **business_admin caller**: may create `business_admin`/
+            `staff` for THEIR OWN tenant only — `tenant_id` always comes
+            from the verified JWT, never the request body (section 7).
+
+        Returns the created user's public profile — never a token; the
+        new account authenticates for itself via `/auth/login`.
         """
         email = payload.email.lower()
-
-        if self.tenants.get_by_email(email) is not None:
-            raise EmailAlreadyExistsError(email)
         if self.users.get_by_email(email) is not None:
             raise EmailAlreadyExistsError(email)
 
-        tenant = Tenant(
-            id=generate_id("t"),
-            business_name=payload.business_name,
-            business_type=payload.business_type.value,
-            email=email,
-            phone=payload.phone,
-            config={},
-            is_active=True,
-        )
+        if payload.role == UserRole.saas_admin:
+            target_tenant_id = self._resolve_bootstrap(payload, current_user)
+        else:
+            target_tenant_id = self._resolve_target_tenant(payload, current_user)
+
         user = User(
             id=generate_id("u"),
-            tenant_id=tenant.id,
+            tenant_id=target_tenant_id,
             email=email,
             password_hash=hash_password(payload.password),
-            role="business_admin",
+            role=payload.role.value,
             is_active=True,
         )
 
         try:
-            self.tenants.create(tenant)
             self.users.create(user)
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
-            logger.warning("Registration race detected for email=%s", email)
+            logger.warning("User-creation race detected for email=%s", email)
             raise EmailAlreadyExistsError(email)
 
         log_operation(
-            tenant_id=tenant.id,
-            user_id=user.id,
-            action="REGISTER_TENANT",
-            resource_id=tenant.id,
-            after={
-                "business_name": tenant.business_name,
-                "business_type": tenant.business_type,
-                "email": tenant.email,
-            },
+            tenant_id=target_tenant_id,
+            user_id=current_user.user_id if current_user else user.id,
+            action="CREATE_USER",
+            resource_id=user.id,
+            after={"email": user.email, "role": user.role, "tenant_id": user.tenant_id},
         )
-        log_auth_event(email=email, success=True, reason="registration")
 
-        token = self._issue_token(user, tenant)
-        return self._token_response(token, user, tenant)
+        tenant = self.tenants.get_by_id(target_tenant_id)
+        return UserResponse(
+            user_id=user.id,
+            email=user.email,
+            role=user.role,
+            tenant_id=user.tenant_id,
+            business_type=tenant.business_type,
+            is_active=user.is_active,
+        )
+
+    def _resolve_bootstrap(self, payload: CreateUserRequest, current_user: Optional[CurrentUser]) -> str:
+        """
+        Validate the one-time, anonymous-only path that mints the
+        platform's single `saas_admin`. Closes permanently the moment
+        one exists — afterwards even an existing saas_admin cannot mint
+        another through this endpoint (by design: there is only one).
+        """
+        if current_user is not None:
+            raise UserCreationNotAllowedError("saas_admin accounts can only be created via the one-time bootstrap")
+        if self.users.count_by_role(UserRole.saas_admin.value) > 0:
+            raise UserCreationNotAllowedError("Bootstrap is closed: a platform owner already exists")
+        if not payload.tenant_id:
+            raise UserCreationNotAllowedError("tenant_id is required to create the platform owner account")
+
+        tenant = self.tenants.get_by_id(payload.tenant_id)
+        if tenant is None or not tenant.is_active:
+            raise TenantNotFoundError(payload.tenant_id)
+        return tenant.id
+
+    def _resolve_target_tenant(self, payload: CreateUserRequest, current_user: Optional[CurrentUser]) -> str:
+        """Resolve which tenant a new business_admin/staff account belongs to, by the caller's role."""
+        if current_user is None:
+            raise UserCreationNotAllowedError("Authentication is required to create business_admin/staff accounts")
+
+        if current_user.role == UserRole.business_admin.value:
+            return current_user.tenant_id  # never trust the request body (Rules.md section 7)
+
+        if current_user.role == UserRole.saas_admin.value:
+            if not payload.tenant_id:
+                raise UserCreationNotAllowedError("tenant_id is required when creating a user as saas_admin")
+            tenant = self.tenants.get_by_id(payload.tenant_id)
+            if tenant is None or not tenant.is_active:
+                raise TenantNotFoundError(payload.tenant_id)
+            return tenant.id
+
+        raise UserCreationNotAllowedError("Only saas_admin or business_admin accounts can create users")
 
     # ------------------------------------------------------------------
     # Login — US-001

@@ -8,6 +8,7 @@ request body/path/query, only from the verified JWT.
 """
 
 import logging
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -122,10 +123,56 @@ def get_user_id(current_user: CurrentUser = Depends(get_current_user)) -> str:
     return current_user.user_id
 
 
+# `auto_error=False` makes this scheme return `None` instead of raising 401
+# when no `Authorization` header is present — needed for the one-time
+# saas_admin bootstrap (US-018), the only case where an *anonymous* caller
+# is allowed to hit `POST /auth/users`.
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+
+async def get_optional_current_user(
+    token: str | None = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[CurrentUser]:
+    """
+    Resolve the caller if a bearer token was supplied, or `None` if the
+    request is anonymous.
+
+    A *missing* token means "anonymous" (returns `None`); a *present but
+    invalid/expired* token still raises 401 — only the absence of
+    credentials is treated as "no caller", never a bad credential.
+    """
+    if token is None:
+        return None
+    return await get_current_user(token=token, db=db)
+
+
+def require_role(*roles: str):
+    """
+    Build a dependency that only lets callers with one of `roles` through,
+    rejecting everyone else with 403 (Rules.md section 2 — reusable
+    auth/authorization dependencies). Use for routes restricted to a
+    specific role, e.g. `Depends(require_role("saas_admin"))`.
+    """
+
+    def _check(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions for this operation",
+            )
+        return current_user
+
+    return _check
+
+
 __all__ = [
     "oauth2_scheme",
+    "oauth2_scheme_optional",
     "CurrentUser",
     "get_current_user",
+    "get_optional_current_user",
     "get_tenant_id",
     "get_user_id",
+    "require_role",
 ]

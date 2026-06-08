@@ -51,6 +51,10 @@ class UserRepository:
     def get_by_email(self, email: str) -> Optional[User]:
         return self.db.query(User).filter(User.email == email).first()
 
+    def count_by_role(self, role: str) -> int:
+        """Used by the saas_admin bootstrap (US-018) to check whether a platform owner already exists."""
+        return self.db.query(User).filter(User.role == role).count()
+
     def get_by_id(self, user_id: str, tenant_id: str) -> Optional[User]:
         return (
             self.db.query(User)
