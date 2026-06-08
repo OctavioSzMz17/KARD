@@ -14,12 +14,17 @@ from auth.routes import router as auth_router
 from core.config import settings
 from core.exceptions import (
     AccountLockedError,
+    DuplicateProductNameError,
     EmailAlreadyExistsError,
+    InsufficientStockError,
     InvalidCredentialsError,
+    InvalidMetadataError,
+    ProductNotFoundError,
     TenantAccessError,
     TenantNotFoundError,
     UserCreationNotAllowedError,
 )
+from products.routes import router as products_router
 from saasadmin.routes import router as saasadmin_router
 
 setup_logging()
@@ -81,6 +86,30 @@ async def user_creation_not_allowed_exception_handler(request: Request, exc: Use
     return JSONResponse(status_code=403, content=_error(str(exc)))
 
 
+@app.exception_handler(ProductNotFoundError)
+async def product_not_found_exception_handler(request: Request, exc: ProductNotFoundError):
+    """Unknown id, soft-deleted, or belongs to another tenant → 404 (Rules.md section 7.5)."""
+    return JSONResponse(status_code=404, content=_error("Product not found"))
+
+
+@app.exception_handler(DuplicateProductNameError)
+async def duplicate_product_name_exception_handler(request: Request, exc: DuplicateProductNameError):
+    """Product name must be unique per tenant (`uq_product_name_tenant`) → 400."""
+    return JSONResponse(status_code=400, content=_error("A product with this name already exists"))
+
+
+@app.exception_handler(InsufficientStockError)
+async def insufficient_stock_exception_handler(request: Request, exc: InsufficientStockError):
+    """Selling more than is in stock would drive inventory below zero → 400."""
+    return JSONResponse(status_code=400, content=_error(str(exc)))
+
+
+@app.exception_handler(InvalidMetadataError)
+async def invalid_metadata_exception_handler(request: Request, exc: InvalidMetadataError):
+    """Product JSONB metadata doesn't match the tenant's business_type schema → 422."""
+    return JSONResponse(status_code=422, content=_error(str(exc)))
+
+
 @app.get("/health")
 async def health_check():
     """Lightweight liveness probe used by Docker healthchecks and uptime checks."""
@@ -89,6 +118,7 @@ async def health_check():
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(saasadmin_router, prefix="/api/v1/saasadmin", tags=["saasadmin"])
+app.include_router(products_router, prefix="/api/v1/products", tags=["products"])
 
 
 if __name__ == "__main__":
