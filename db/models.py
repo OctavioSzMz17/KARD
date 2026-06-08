@@ -24,7 +24,7 @@ Base = declarative_base()
 # CREATE TYPE — the raw SQL migration owns enum lifecycle, not the ORM.
 # ---------------------------------------------------------------------------
 business_type_enum = ENUM(
-    "restaurant", "optician",
+    "restaurant", "optician", "platform",
     name="business_type_enum",
     create_type=False,
 )
