@@ -29,11 +29,11 @@
 
 - As a **SaaS Owner**, I want to register a new business (restaurant/optician), so that I can add new tenants to the system
 - **Acceptance Criteria:**
-    - Form fields: business_name, business_type (dropdown: restaurant/optician), email, password, phone
+    - Form fields: business_name, business_type (dropdown: restaurant/optician), email, phone
     - System creates new tenant record with unique tenant_id
-    - Creates admin user linked to that tenant
+    - **Does NOT create a user** — registering a business and onboarding its people are separate steps (see US-018), so a tenant can exist before it has any login-capable user, and additional staff can be onboarded later through the same mechanism
     - Sends confirmation email
-    - Admin redirected to onboarding/customization flow
+    - SaaS Owner is redirected to onboard the business's first admin user (US-018)
 
 ---
 
@@ -193,6 +193,22 @@
 
 ---
 
+### **6. TEAM / USER MANAGEMENT (Onboarding People into a Tenant)**
+
+**US-018: Create User & Assign to Tenant + Role**
+
+- As a **SaaS Owner or Business Admin**, I want to create a new user and explicitly assign them to a tenant and a role, so that I can onboard a brand-new business's first admin **and** add staff later as the business grows — using the same mechanism either way
+- **Acceptance Criteria:**
+    - Form fields: email, password, role, and `tenant_id`
+    - **SaaS Owner**: can pick any existing, active tenant from a list and assign role `business_admin` (typically used right after US-003 to create a business's first admin)
+    - **Business Admin**: `tenant_id` is fixed to their own tenant (read from the JWT, never from the request body — Rules.md section 7); can only assign roles `business_admin` or `staff` within their own business; cannot create `saas_admin` users or touch other tenants
+    - System validates the target tenant exists and `is_active = true` before creating the user
+    - Email must be unique globally (one identity = one login across the whole platform, per `users.email UNIQUE`)
+    - New user can log in immediately afterward with the assigned role + tenant context (US-001/US-002)
+    - Audit log records who created the user, for which tenant, and with which role (Rules.md section 11)
+
+---
+
 ### **SUMMARY**
 
 | Category | Count | Stories |
@@ -202,4 +218,5 @@
 | Dashboard | 3 | US-009 to US-011 |
 | Catalog | 2 | US-012, US-013 |
 | Customization | 4 | US-014 to US-017 |
-| **TOTAL** | **17** | - |
+| Team / User Management | 1 | US-018 |
+| **TOTAL** | **18** | - |

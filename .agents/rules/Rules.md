@@ -17,6 +17,11 @@ Rules for IDE Agent
 7. Implement token blacklist on logout (Redis or in-memory store)
 8. Failed login attempts: use `RedisCounter` to track and lock after 5 attempts
 9. All sensitive operations require re-authentication confirmation
+10. **Tenant creation and user creation are separate operations** (US-003 vs. US-018):
+    - `POST /auth/register` creates ONLY the `tenants` record — a business can exist before it has any login-capable user
+    - Users (including a brand-new tenant's first admin, and every staff member added afterward) are created through one shared "create user" flow that explicitly takes `tenant_id` + `role`
+    - This keeps "register a new business" and "this business just hired someone" the same mechanism, so onboarding additional staff later requires no special-casing
+    - A `business_admin` creating staff must have `tenant_id` taken from their own JWT (never from the request body — see section 7); a `saas_admin` may pick any active tenant explicitly
 
 ### **2. FASTAPI DEPENDENCY INJECTION & MIDDLEWARE**
 
