@@ -25,6 +25,10 @@ class InvalidMetadataError(Exception):
     """Raised when product JSONB metadata fails schema validation."""
 
 
+class DuplicateProductNameError(Exception):
+    """Raised when a product name collides with an existing one for the same tenant."""
+
+
 class UserNotFoundError(Exception):
     """Raised when a requested user does not exist."""
 

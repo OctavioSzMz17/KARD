@@ -11,7 +11,7 @@ so `Base.metadata` stays consistent across the whole application.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -32,6 +32,18 @@ business_type_enum = ENUM(
 user_role_enum = ENUM(
     "saas_admin", "business_admin", "staff",
     name="user_role_enum",
+    create_type=False,
+)
+
+product_type_enum = ENUM(
+    "insumo", "final",
+    name="product_type_enum",
+    create_type=False,
+)
+
+inventory_action_enum = ENUM(
+    "sell", "restock", "adjust", "create",
+    name="inventory_action_enum",
     create_type=False,
 )
 
@@ -85,3 +97,72 @@ class User(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid only
         return f"<User id={self.id!r} email={self.email!r} role={self.role!r}>"
+
+
+class Product(Base):
+    """
+    A catalog item belonging to exactly one tenant.
+
+    `metadata` is JSONB whose *shape* depends on the owning tenant's
+    `business_type` (restaurant vs. optician); the schema is enforced
+    at the service layer (Rules.md section 8), not by the database.
+
+    NOTE: the Python attribute is named `metadata_` (with a trailing
+    underscore) because `metadata` is reserved on `Base` — it still
+    maps onto the real `metadata` column via `Column("metadata", ...)`.
+    """
+
+    __tablename__ = "products"
+
+    id = Column(String(60), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    product_type = Column(product_type_enum, nullable=False)
+    name = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    price = Column(Numeric(10, 2), nullable=False, default=0)
+    inventory_count = Column(Integer, nullable=False, default=0)
+    low_stock_threshold = Column(Integer, nullable=False, default=5)
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_by = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    tenant = relationship("Tenant")
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return f"<Product id={self.id!r} name={self.name!r} tenant_id={self.tenant_id!r}>"
+
+
+class InventoryTransaction(Base):
+    """
+    Immutable record of a single inventory movement (Rules.md section 11).
+
+    Never updated or deleted after creation — `quantity_after` is
+    enforced by a DB CHECK constraint to equal `quantity_before +
+    quantity_change`, so this table is also a tamper-evident audit
+    trail of every stock change, independent of `audit_logs`.
+    """
+
+    __tablename__ = "inventory_transactions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    product_id = Column(String(60), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False, index=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    action = Column(inventory_action_enum, nullable=False)
+    quantity_change = Column(Integer, nullable=False)
+    quantity_before = Column(Integer, nullable=False)
+    quantity_after = Column(Integer, nullable=False)
+    user_id = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    product = relationship("Product")
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return (
+            f"<InventoryTransaction id={self.id} product_id={self.product_id!r} "
+            f"action={self.action!r} change={self.quantity_change}>"
+        )
