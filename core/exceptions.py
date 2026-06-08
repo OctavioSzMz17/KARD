@@ -27,3 +27,15 @@ class InvalidMetadataError(Exception):
 
 class UserNotFoundError(Exception):
     """Raised when a requested user does not exist."""
+
+
+class InvalidCredentialsError(Exception):
+    """Raised when login fails: unknown email, wrong password, or inactive account."""
+
+
+class EmailAlreadyExistsError(Exception):
+    """Raised on registration when the email is already associated with a tenant or user."""
+
+
+class AccountLockedError(Exception):
+    """Raised when an account is temporarily locked after too many failed login attempts."""

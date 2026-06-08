@@ -24,8 +24,19 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Check a plaintext password against a stored bcrypt hash."""
-    return pwd_context.verify(plain, hashed)
+    """
+    Check a plaintext password against a stored bcrypt hash.
+
+    Treats a malformed/corrupt stored hash as "does not match" rather
+    than letting passlib's `ValueError` bubble up — a bad hash must
+    never turn a login attempt into a 500 (it should look identical to
+    a wrong password to the caller, see Rules.md section 1 on not
+    leaking account-existence details).
+    """
+    try:
+        return pwd_context.verify(plain, hashed)
+    except (ValueError, TypeError):
+        return False
 
 
 def create_token(data: dict[str, Any]) -> str:
