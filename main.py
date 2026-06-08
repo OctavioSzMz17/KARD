@@ -17,7 +17,10 @@ from core.exceptions import (
     EmailAlreadyExistsError,
     InvalidCredentialsError,
     TenantAccessError,
+    TenantNotFoundError,
+    UserCreationNotAllowedError,
 )
+from saasadmin.routes import router as saasadmin_router
 
 setup_logging()
 
@@ -66,6 +69,18 @@ async def account_locked_exception_handler(request: Request, exc: AccountLockedE
     )
 
 
+@app.exception_handler(TenantNotFoundError)
+async def tenant_not_found_exception_handler(request: Request, exc: TenantNotFoundError):
+    """Referenced tenant_id doesn't exist or isn't active → 404 (US-018)."""
+    return JSONResponse(status_code=404, content=_error("Tenant not found"))
+
+
+@app.exception_handler(UserCreationNotAllowedError)
+async def user_creation_not_allowed_exception_handler(request: Request, exc: UserCreationNotAllowedError):
+    """Role/ownership rules for user creation violated → 403 (US-018)."""
+    return JSONResponse(status_code=403, content=_error(str(exc)))
+
+
 @app.get("/health")
 async def health_check():
     """Lightweight liveness probe used by Docker healthchecks and uptime checks."""
@@ -73,10 +88,7 @@ async def health_check():
 
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
-
-# NOTE: Further routers (products, businessadmin, saasadmin, ...) are
-# included in their respective feature branches following the same
-# pattern: app.include_router(<router>, prefix="/api/v1/<area>", tags=[...])
+app.include_router(saasadmin_router, prefix="/api/v1/saasadmin", tags=["saasadmin"])
 
 
 if __name__ == "__main__":
