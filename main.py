@@ -16,6 +16,7 @@ from core.exceptions import (
     AccountLockedError,
     DuplicateProductNameError,
     EmailAlreadyExistsError,
+    ImageNotFoundError,
     InsufficientStockError,
     InvalidCredentialsError,
     InvalidMetadataError,
@@ -24,6 +25,7 @@ from core.exceptions import (
     TenantNotFoundError,
     UserCreationNotAllowedError,
 )
+from images.routes import router as images_router
 from products.routes import router as products_router
 from saasadmin.routes import router as saasadmin_router
 
@@ -110,6 +112,12 @@ async def invalid_metadata_exception_handler(request: Request, exc: InvalidMetad
     return JSONResponse(status_code=422, content=_error(str(exc)))
 
 
+@app.exception_handler(ImageNotFoundError)
+async def image_not_found_exception_handler(request: Request, exc: ImageNotFoundError):
+    """Unknown image id, belongs to a different product, or different tenant → 404."""
+    return JSONResponse(status_code=404, content=_error("Image not found"))
+
+
 @app.get("/health")
 async def health_check():
     """Lightweight liveness probe used by Docker healthchecks and uptime checks."""
@@ -119,6 +127,7 @@ async def health_check():
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(saasadmin_router, prefix="/api/v1/saasadmin", tags=["saasadmin"])
 app.include_router(products_router, prefix="/api/v1/products", tags=["products"])
+app.include_router(images_router, prefix="/api/v1/products", tags=["images"])
 
 
 if __name__ == "__main__":

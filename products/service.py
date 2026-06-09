@@ -26,6 +26,7 @@ from core.exceptions import (
     ProductNotFoundError,
 )
 from db.models import InventoryTransaction, Product
+from images.repository import ImageRepository
 from products.models import (
     ProductCreate,
     ProductListResponse,
@@ -46,6 +47,7 @@ class ProductService:
         self.db = db
         self.products = ProductRepository(db)
         self.inventory = InventoryTransactionRepository(db)
+        self.image_repo = ImageRepository(db)
 
     # ------------------------------------------------------------------
     # CRUD
@@ -307,8 +309,21 @@ class ProductService:
             "is_deleted": product.is_deleted,
         }
 
-    @staticmethod
-    def _to_response(product: Product) -> ProductResponse:
+    def _to_response(self, product: Product) -> ProductResponse:
+        from images.models import ImageResponse
+        raw_images = self.image_repo.list_for_owner(product.tenant_id, "product", product.id)
+        images = [
+            ImageResponse(
+                image_id=img.id,
+                owner_type=img.owner_type,
+                owner_id=img.owner_id,
+                url=img.url,
+                alt_text=img.alt_text,
+                sort_order=img.sort_order,
+                created_at=img.created_at,
+            )
+            for img in raw_images
+        ]
         return ProductResponse(
             product_id=product.id,
             tenant_id=product.tenant_id,
@@ -320,4 +335,5 @@ class ProductService:
             low_stock_threshold=product.low_stock_threshold,
             metadata=product.metadata_,
             is_deleted=product.is_deleted,
+            images=images,
         )
