@@ -49,6 +49,10 @@ class TenantNotFoundError(Exception):
     """Raised when a referenced tenant_id does not exist or is not active."""
 
 
+class ImageNotFoundError(Exception):
+    """Raised when a requested image does not exist for the tenant/owner."""
+
+
 class UserCreationNotAllowedError(Exception):
     """
     Raised when a user-creation request violates the role/ownership rules

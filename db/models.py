@@ -11,7 +11,7 @@ so `Base.metadata` stays consistent across the whole application.
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -166,3 +166,34 @@ class InventoryTransaction(Base):
             f"<InventoryTransaction id={self.id} product_id={self.product_id!r} "
             f"action={self.action!r} change={self.quantity_change}>"
         )
+
+
+class Image(Base):
+    """
+    A media asset (URL) attached to any ownable entity via the polymorphic
+    `owner_type` / `owner_id` pair (Rules.md pattern — polymorphic associations).
+
+    Today only `owner_type = 'product'` is used; tomorrow the same table can
+    hold tenant logos, category banners, etc., with zero schema changes.
+
+    Images are tenant-isolated: `tenant_id` is always set from the verified
+    JWT (Rules.md section 7) and every query filters by it, so a row that
+    belongs to another tenant is invisible — indistinguishable from non-existent.
+
+    `sort_order` controls display order within a gallery; lower = earlier.
+    The primary image is conventionally `sort_order = 0`.
+    """
+
+    __tablename__ = "images"
+
+    id = Column(String(50), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    owner_type = Column(String(50), nullable=False)
+    owner_id = Column(String(50), nullable=False)
+    url = Column(Text, nullable=False)
+    alt_text = Column(String(255), nullable=True)
+    sort_order = Column(SmallInteger, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return f"<Image id={self.id!r} owner_type={self.owner_type!r} owner_id={self.owner_id!r}>"

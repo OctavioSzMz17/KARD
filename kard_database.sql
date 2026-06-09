@@ -162,6 +162,32 @@ COMMENT ON COLUMN customers.id        IS 'Customer identifier: c_{uuid_short}';
 COMMENT ON COLUMN customers.is_deleted IS 'Soft delete flag. Hard deletes are never performed';
 
 -- =============================================================
+-- TABLE: images (polymorphic media assets)
+-- Stores image URLs for any ownable entity (products today,
+-- tenants/categories/etc. tomorrow) via the owner_type + owner_id pair.
+-- Option A (duplicate-row) polymorphic association: each owner gets its
+-- own row even when two owners share the same URL, so deletions are
+-- always isolated. Tenant-scoped: tenant_id is always set from the
+-- verified JWT and every query filters by it.
+-- =============================================================
+CREATE TABLE images (
+    id          VARCHAR(50)  PRIMARY KEY,
+    tenant_id   VARCHAR(50)  NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+    owner_type  VARCHAR(50)  NOT NULL,
+    owner_id    VARCHAR(50)  NOT NULL,
+    url         TEXT         NOT NULL,
+    alt_text    VARCHAR(255),
+    sort_order  SMALLINT     NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  images             IS 'Polymorphic media asset registry (URL-based)';
+COMMENT ON COLUMN images.id          IS 'Image identifier: img_{uuid_short}';
+COMMENT ON COLUMN images.owner_type  IS 'Entity type that owns this image, e.g. ''product''';
+COMMENT ON COLUMN images.owner_id    IS 'PK of the owning entity (must match owner_type table)';
+COMMENT ON COLUMN images.sort_order  IS 'Display order within a gallery; 0 = primary/main image';
+
+-- =============================================================
 -- INDEXES
 -- =============================================================
 
@@ -443,6 +469,8 @@ INSERT INTO products (id, tenant_id, product_type, name, price, inventory_count,
 -- UPDATE products
 -- SET inventory_count = inventory_count - 1
 -- WHERE id = 'p_001opti_t_opti01' AND tenant_id = 't_opti01';
+
+CREATE INDEX idx_images_owner ON images (tenant_id, owner_type, owner_id, sort_order);
 
 -- =============================================================
 -- END OF SCHEMA

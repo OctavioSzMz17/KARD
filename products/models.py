@@ -36,18 +36,26 @@ class ProductType(str, Enum):
 # JSONB metadata schemas — one per supported `business_type` (Rules.md §8)
 #
 # `additionalProperties: False` enforces "reject any extra keys not in
-# schema" (Rules.md §8.3); every field is `required` because partial
-# metadata is just as useless to the business logic as missing metadata.
+# schema" (Rules.md §8.3). Each schema's `required` list covers exactly
+# the fields the business logic depends on — anything beyond that
+# (e.g. `alergenos`) is a nice-to-have the caller may omit.
 # ---------------------------------------------------------------------------
 
 RESTAURANT_METADATA_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "unidad_medida": {"type": "string", "minLength": 1},
-        "perecedero": {"type": "boolean"},
-        "dias_expiracion": {"type": "integer", "minimum": 0},
+        "categoria": {
+            "type": "string",
+            "enum": ["entrada", "plato_fuerte", "postre", "bebida", "guarnicion"],
+        },
+        "tiempo_preparacion_min": {"type": "integer", "minimum": 0},
+        "picante": {"type": "boolean"},
+        "alergenos": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+        },
     },
-    "required": ["unidad_medida", "perecedero", "dias_expiracion"],
+    "required": ["categoria", "tiempo_preparacion_min", "picante"],
     "additionalProperties": False,
 }
 
@@ -170,6 +178,13 @@ class ProductResponse(BaseModel):
     low_stock_threshold: int
     metadata: dict[str, Any]
     is_deleted: bool
+    images: list["ImageResponse"] = Field(default_factory=list)
+
+
+# Forward-reference resolved at the bottom of this module after ImageResponse
+# is imported — avoids a circular import while keeping the response shape
+# self-contained inside the products contract.
+from images.models import ImageResponse  # noqa: E402 — intentional late import
 
 
 class ProductListResponse(BaseModel):
