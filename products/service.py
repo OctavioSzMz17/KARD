@@ -55,7 +55,7 @@ class ProductService:
 
     def create_product(self, payload: ProductCreate, current_user: CurrentUser) -> ProductResponse:
         """Create a catalog item for the caller's tenant (US — Product CRUD)."""
-        validate_metadata(current_user.business_type, payload.metadata)
+        validate_metadata(current_user.business_type, payload.product_type.value, payload.metadata)
 
         if self.products.get_by_name(current_user.tenant_id, payload.name) is not None:
             raise DuplicateProductNameError(payload.name)
@@ -141,7 +141,7 @@ class ProductService:
         if payload.metadata is not None:
             # Metadata is replaced wholesale (not merged) — partial JSONB
             # would silently drop required keys past schema validation.
-            validate_metadata(current_user.business_type, payload.metadata)
+            validate_metadata(current_user.business_type, product.product_type, payload.metadata)
             product.metadata_ = payload.metadata
 
         try:

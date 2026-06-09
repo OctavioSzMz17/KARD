@@ -204,15 +204,20 @@ Header: `Authorization: Bearer <token_saas_admin>`
 
 ### 4.1 Crear producto — `POST /api/v1/products`
 
-**`product_type` válidos:** `insumo` · `final`
+El schema del `metadata` depende de **`business_type` + `product_type`** combinados.
 
-#### Restaurant
+---
 
-El metadata describe el **platillo** tal como lo recibe el cliente.
+#### Restaurant — `product_type: "final"` (Sección: Productos)
 
-Campos requeridos en `metadata`: `categoria`, `tiempo_preparacion_min`, `picante`
-Campo opcional: `alergenos`
-`categoria` válidos: `entrada` · `plato_fuerte` · `postre` · `bebida` · `guarnicion`
+Platillo terminado que se vende al cliente. Vive en el sidebar bajo **Productos**.
+
+| Campo metadata | Tipo | Requerido | Valores |
+|---|---|---|---|
+| `categoria` | string enum | ✅ | `entrada` `plato_fuerte` `postre` `bebida` `guarnicion` |
+| `tiempo_preparacion_min` | integer ≥ 0 | ✅ | minutos de preparación |
+| `picante` | boolean | ✅ | `true` / `false` |
+| `alergenos` | array de strings | ⬜ opcional | ej. `["gluten","lacteos"]` |
 
 ```json
 {
@@ -247,29 +252,78 @@ Campo opcional: `alergenos`
 }
 ```
 
+---
+
+#### Restaurant — `product_type: "insumo"` (Sección: Inventario)
+
+Ingrediente o supply de cocina. Vive en el sidebar bajo **Inventario**.
+
+| Campo metadata | Tipo | Requerido | Valores |
+|---|---|---|---|
+| `unidad_medida` | string | ✅ | `kg` `litro` `pieza` `manojo` `caja` etc. |
+| `perecedero` | boolean | ✅ | `true` si tiene fecha de caducidad |
+| `dias_expiracion` | integer ≥ 0 | ✅ | días de vida útil (0 = no perece) |
+
 ```json
 {
-  "product_type": "final",
-  "name": "Flan Napolitano",
-  "description": "Postre tradicional con caramelo",
-  "price": 3.50,
-  "inventory_count": 12,
-  "low_stock_threshold": 3,
+  "product_type": "insumo",
+  "name": "Tomate rojo",
+  "description": "Tomate para salsas y guisos",
+  "price": 18.00,
+  "inventory_count": 30,
+  "low_stock_threshold": 8,
   "metadata": {
-    "categoria": "postre",
-    "tiempo_preparacion_min": 5,
-    "picante": false,
-    "alergenos": ["lacteos", "huevo"]
+    "unidad_medida": "kg",
+    "perecedero": true,
+    "dias_expiracion": 7
   }
 }
 ```
 
-#### Optician
+```json
+{
+  "product_type": "insumo",
+  "name": "Aceite vegetal",
+  "description": "Aceite para freír y aderezar",
+  "price": 48.00,
+  "inventory_count": 12,
+  "low_stock_threshold": 3,
+  "metadata": {
+    "unidad_medida": "litro",
+    "perecedero": false,
+    "dias_expiracion": 0
+  }
+}
+```
 
-El metadata describe el **lente terminado** tal como se vende al cliente.
+```json
+{
+  "product_type": "insumo",
+  "name": "Pollo entero",
+  "description": "Pollo fresco para guisar",
+  "price": 85.00,
+  "inventory_count": 20,
+  "low_stock_threshold": 5,
+  "metadata": {
+    "unidad_medida": "kg",
+    "perecedero": true,
+    "dias_expiracion": 3
+  }
+}
+```
 
-Campos requeridos en `metadata`: `esfera`, `cilindro`, `eje`, `material`
-`eje` es entero entre `0` y `180`.
+---
+
+#### Optician — `product_type: "final"` e `"insumo"`
+
+El metadata es el mismo para ambos tipos en óptica — describe el **lente terminado**.
+
+| Campo metadata | Tipo | Requerido | Valores |
+|---|---|---|---|
+| `esfera` | string | ✅ | ej. `"-2.00"`, `"+1.50"`, `"0.00"` |
+| `cilindro` | string | ✅ | ej. `"-0.50"`, `"0.00"` |
+| `eje` | integer 0–180 | ✅ | ej. `180`, `90`, `0` |
+| `material` | string | ✅ | ej. `"CR-39"`, `"policarbonato"`, `"trivex"` |
 
 ```json
 {
@@ -305,7 +359,9 @@ Campos requeridos en `metadata`: `esfera`, `cilindro`, `eje`, `material`
 }
 ```
 
-**Respuesta `201`:**
+---
+
+**Respuesta `201` — restaurant final:**
 ```json
 {
   "product_id": "p_fccb858d5f7a",
@@ -322,7 +378,29 @@ Campos requeridos en `metadata`: `esfera`, `cilindro`, `eje`, `material`
     "picante": true,
     "alergenos": ["lacteos", "gluten"]
   },
-  "is_deleted": false
+  "is_deleted": false,
+  "images": []
+}
+```
+
+**Respuesta `201` — restaurant insumo:**
+```json
+{
+  "product_id": "p_b3b237d676f2",
+  "tenant_id": "t_9a40982067c4",
+  "product_type": "insumo",
+  "name": "Tomate rojo",
+  "description": "Tomate para salsas y guisos",
+  "price": "18.00",
+  "inventory_count": 30,
+  "low_stock_threshold": 8,
+  "metadata": {
+    "unidad_medida": "kg",
+    "perecedero": true,
+    "dias_expiracion": 7
+  },
+  "is_deleted": false,
+  "images": []
 }
 ```
 

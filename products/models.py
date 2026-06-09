@@ -4,10 +4,9 @@ Pydantic request/response schemas for the products module
 
 Also home to the JSONB metadata schemas and `validate_metadata()`
 (Rules.md section 8 — JSONB Schema Enforcement): the *shape* of a
-product's `metadata` depends on the owning tenant's `business_type`,
-and that dependency is exactly why the check lives here rather than
-as a plain Pydantic field validator (it needs `business_type`, which
-only the service layer knows once it has resolved the caller's tenant).
+product's `metadata` depends on both the tenant's `business_type` AND
+the product's `product_type` — a restaurant platillo (final) and a
+restaurant insumo require completely different fields.
 """
 
 from decimal import Decimal
@@ -33,15 +32,18 @@ class ProductType(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# JSONB metadata schemas — one per supported `business_type` (Rules.md §8)
+# JSONB metadata schemas — keyed by (business_type, product_type) so that
+# a restaurant platillo (final) and a restaurant insumo get completely
+# different required fields. (Rules.md §8)
 #
-# `additionalProperties: False` enforces "reject any extra keys not in
-# schema" (Rules.md §8.3). Each schema's `required` list covers exactly
-# the fields the business logic depends on — anything beyond that
-# (e.g. `alergenos`) is a nice-to-have the caller may omit.
+# `additionalProperties: False` rejects any key not declared in the schema.
+# `required` covers only fields the business logic depends on; optional
+# fields (e.g. `alergenos`) are declared in `properties` but omitted from
+# `required`.
 # ---------------------------------------------------------------------------
 
-RESTAURANT_METADATA_SCHEMA: dict[str, Any] = {
+# restaurant + final — platillo listo para el cliente
+RESTAURANT_FINAL_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "categoria": {
@@ -59,7 +61,20 @@ RESTAURANT_METADATA_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-OPTICIAN_METADATA_SCHEMA: dict[str, Any] = {
+# restaurant + insumo — ingrediente / supply de cocina
+RESTAURANT_INSUMO_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "unidad_medida": {"type": "string", "minLength": 1},
+        "perecedero": {"type": "boolean"},
+        "dias_expiracion": {"type": "integer", "minimum": 0},
+    },
+    "required": ["unidad_medida", "perecedero", "dias_expiracion"],
+    "additionalProperties": False,
+}
+
+# optician — lente terminado para el cliente (mismo schema para final e insumo)
+OPTICIAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "esfera": {"type": "string", "minLength": 1},
@@ -71,28 +86,30 @@ OPTICIAN_METADATA_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-# Maps `business_type` -> its required metadata shape. Business types with
-# no entry here (e.g. `platform`, the SaaS's own tenant) simply cannot own
-# products — see `validate_metadata` below; this is intentional, not an
-# oversight, since "platform" tenants don't sell anything.
-_METADATA_SCHEMAS_BY_BUSINESS_TYPE: dict[str, dict[str, Any]] = {
-    "restaurant": RESTAURANT_METADATA_SCHEMA,
-    "optician": OPTICIAN_METADATA_SCHEMA,
+# (business_type, product_type) -> schema
+# Missing keys (e.g. "platform") mean that business type cannot own products.
+_METADATA_SCHEMAS: dict[tuple[str, str], dict[str, Any]] = {
+    ("restaurant", "final"):  RESTAURANT_FINAL_SCHEMA,
+    ("restaurant", "insumo"): RESTAURANT_INSUMO_SCHEMA,
+    ("optician",   "final"):  OPTICIAN_SCHEMA,
+    ("optician",   "insumo"): OPTICIAN_SCHEMA,
 }
 
 
-def validate_metadata(business_type: str, metadata: dict[str, Any]) -> None:
+def validate_metadata(business_type: str, product_type: str, metadata: dict[str, Any]) -> None:
     """
-    Validate `metadata` against the JSONB schema for `business_type`.
+    Validate `metadata` against the schema for (business_type, product_type).
 
     Raises `InvalidMetadataError` (-> 422) when:
-      - the tenant's `business_type` has no product metadata schema
-        (e.g. "platform" — the SaaS's own tenant doesn't sell products), or
-      - `metadata` doesn't conform to that business type's required shape.
+      - the combination has no registered schema (e.g. business_type
+        "platform" — the SaaS tenant doesn't sell products), or
+      - `metadata` doesn't conform to the required shape.
     """
-    schema = _METADATA_SCHEMAS_BY_BUSINESS_TYPE.get(business_type)
+    schema = _METADATA_SCHEMAS.get((business_type, product_type))
     if schema is None:
-        raise InvalidMetadataError(f"Products are not supported for business_type '{business_type}'")
+        raise InvalidMetadataError(
+            f"Products are not supported for business_type '{business_type}'"
+        )
 
     try:
         jsonschema_validate(instance=metadata, schema=schema)
