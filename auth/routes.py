@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from auth.models import CreateUserRequest, LoginRequest, TokenResponse, UserResponse
+from auth.models import CreateUserRequest, LoginRequest, TenantRegistrationRequest, TenantRegistrationResponse, TokenResponse, UserResponse
 from auth.service import AuthService
 from core.dependencies import CurrentUser, get_optional_current_user
 from db.database import get_db
@@ -50,6 +50,23 @@ def create_user(
     enforces exactly which combinations are legal.
     """
     return AuthService(db).create_user(payload, current_user)
+
+
+@router.post(
+    "/register-tenant",
+    response_model=TenantRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Self-service tenant registration — creates tenant + first business_admin in one step",
+)
+def register_tenant(payload: TenantRegistrationRequest, db: Session = Depends(get_db)) -> TenantRegistrationResponse:
+    """
+    Public endpoint — no auth required.
+
+    Creates the tenant record, generates a unique slug, creates the first
+    business_admin user, and returns a ready-to-use JWT so the new admin
+    lands directly in the dashboard.
+    """
+    return AuthService(db).register_tenant(payload)
 
 
 @router.post(

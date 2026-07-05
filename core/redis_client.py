@@ -47,3 +47,34 @@ def get_redis() -> Optional[redis.Redis]:
             return None
 
     return _client
+
+
+STOREFRONT_CACHE_TTL = 300  # 5 minutes
+
+
+def invalidate_storefront_cache(slug: str) -> None:
+    """
+    Delete all cached catalog pages for a storefront slug.
+
+    Called from `products/service.py` after any product mutation so the
+    next request re-reads from the DB. Fails silently — the cache is an
+    optimization, not a correctness requirement.
+    """
+    redis_client = get_redis()
+    if redis_client is None:
+        return
+    try:
+        pattern = f"storefront:catalog:{slug}:*"
+        cursor = 0
+        deleted = 0
+        while True:
+            cursor, keys = redis_client.scan(cursor, match=pattern, count=100)
+            if keys:
+                redis_client.delete(*keys)
+                deleted += len(keys)
+            if cursor == 0:
+                break
+        if deleted:
+            logger.debug("Invalidated %d cache key(s) for storefront slug=%s", deleted, slug)
+    except Exception:
+        logger.warning("Failed to invalidate storefront cache for slug=%s", slug, exc_info=True)

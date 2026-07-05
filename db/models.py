@@ -64,6 +64,8 @@ class Tenant(Base):
     email = Column(String(255), unique=True, nullable=False)
     phone = Column(String(20), nullable=True)
     config = Column(JSONB, nullable=False, default=dict)
+    slug = Column(String(60), unique=True, nullable=True)
+    is_public = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(
@@ -197,3 +199,91 @@ class Image(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid only
         return f"<Image id={self.id!r} owner_type={self.owner_type!r} owner_id={self.owner_id!r}>"
+
+
+class Consumer(Base):
+    """
+    A global B2C identity — one account spans all public storefronts.
+
+    Deliberately has no `tenant_id`: a consumer is a platform-level
+    entity, not scoped to any single business. The tenant is always
+    resolved from the URL slug when needed.
+    """
+
+    __tablename__ = "consumers"
+
+    id = Column(String(30), primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    name = Column(String(100), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Consumer id={self.id!r} email={self.email!r}>"
+
+
+class ConsumerEvent(Base):
+    """
+    A behavioral event recorded when a visitor interacts with a public storefront.
+
+    `consumer_id` is NULL for anonymous visitors — the AI engine in Fase 3 will
+    correlate anonymous → authenticated sessions. Creating this table in Paso 1
+    ensures behavioral data accumulates from the moment the first storefront goes live.
+    """
+
+    __tablename__ = "consumer_events"
+
+    id = Column(String(30), primary_key=True)
+    consumer_id = Column(String(30), nullable=True, index=True)
+    tenant_id = Column(String(30), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False)
+    payload = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return f"<ConsumerEvent id={self.id!r} event_type={self.event_type!r} tenant_id={self.tenant_id!r}>"
+
+
+class Order(Base):
+    """
+    A confirmed purchase intent from a consumer at a single tenant.
+
+    Status flow: pending → paid → fulfilled | canceled
+    Cart (Redis) is cleared atomically when this record is created.
+    """
+
+    __tablename__ = "orders"
+
+    id = Column(String(50), primary_key=True)
+    consumer_id = Column(String(30), ForeignKey("consumers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending")
+    total = Column(Numeric(10, 2), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    items = relationship("OrderItem", back_populates="order")
+    tenant = relationship("Tenant")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Order id={self.id!r} status={self.status!r} total={self.total}>"
+
+
+class OrderItem(Base):
+    """A single line in an order — product + quantity + price locked at purchase time."""
+
+    __tablename__ = "order_items"
+
+    id = Column(String(50), primary_key=True)
+    order_id = Column(String(50), ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, index=True)
+    product_id = Column(String(60), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False)
+    product_name = Column(String(500), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(10, 2), nullable=False)
+    subtotal = Column(Numeric(10, 2), nullable=False)
+
+    order = relationship("Order", back_populates="items")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<OrderItem order_id={self.order_id!r} product_id={self.product_id!r} qty={self.quantity}>"

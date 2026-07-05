@@ -1,3 +1,4 @@
+
 """
 MCP tool definitions for the products module (Rules.md section 14).
 

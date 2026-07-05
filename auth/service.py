@@ -8,25 +8,37 @@ repositories stay dumb (build queries, no policy decisions).
 """
 
 import logging
+import re
+import unicodedata
 from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from audit_logging.audit import log_auth_event, log_operation
-from auth.models import CreateUserRequest, LoginRequest, TokenResponse, UserResponse, UserRole
+from auth.models import (
+    CreateUserRequest,
+    LoginRequest,
+    TenantRegistrationRequest,
+    TenantRegistrationResponse,
+    TokenResponse,
+    UserResponse,
+    UserRole,
+)
 from auth.repository import TenantRepository, UserRepository
 from core.dependencies import CurrentUser
 from core.exceptions import (
     AccountLockedError,
     EmailAlreadyExistsError,
     InvalidCredentialsError,
+    TenantAlreadyExistsError,
     TenantNotFoundError,
     UserCreationNotAllowedError,
 )
 from core.redis_client import get_redis
 from core.security import create_token, hash_password, verify_password
 from db.models import Tenant, User
+from notifications.service import NotificationService
 from utils.helpers import generate_id
 
 logger = logging.getLogger("kard.auth")
@@ -43,6 +55,116 @@ class AuthService:
         self.db = db
         self.tenants = TenantRepository(db)
         self.users = UserRepository(db)
+
+    # ------------------------------------------------------------------
+    # Self-service tenant registration — B2B2C onboarding
+    # ------------------------------------------------------------------
+    def register_tenant(self, payload: TenantRegistrationRequest) -> TenantRegistrationResponse:
+        """
+        Create a tenant + its first business_admin in one atomic commit.
+
+        Returns a JWT so the new admin lands directly in the dashboard
+        without a separate login step. The slug is derived automatically
+        from `business_name` and guaranteed to be unique.
+        """
+        email = payload.email.lower()
+
+        # Dual uniqueness check: same email cannot be used twice anywhere
+        if self.users.get_by_email(email) is not None:
+            raise EmailAlreadyExistsError(email)
+        if self.tenants.get_by_email(email) is not None:
+            raise TenantAlreadyExistsError(email)
+
+        slug = self._generate_unique_slug(payload.business_name)
+
+        tenant = Tenant(
+            id=generate_id("t"),
+            business_name=payload.business_name.strip(),
+            business_type=payload.business_type.value,
+            email=email,
+            slug=slug,
+            is_public=False,
+            is_active=True,
+        )
+
+        user = User(
+            id=generate_id("u"),
+            tenant_id=tenant.id,
+            email=email,
+            password_hash=hash_password(payload.password),
+            role=UserRole.business_admin.value,
+            is_active=True,
+        )
+
+        try:
+            self.tenants.create(tenant)
+            self.users.create(user)
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            logger.warning("register_tenant race detected for email=%s", email)
+            raise EmailAlreadyExistsError(email)
+
+        log_operation(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            action="REGISTER_TENANT",
+            resource_id=tenant.id,
+            after={
+                "business_name": tenant.business_name,
+                "business_type": tenant.business_type,
+                "slug": tenant.slug,
+                "email": tenant.email,
+            },
+        )
+        logger.info("New tenant registered: tenant_id=%s slug=%s", tenant.id, tenant.slug)
+
+        NotificationService.tenant_welcome(
+            email=tenant.email,
+            business_name=tenant.business_name,
+            slug=tenant.slug,
+        )
+
+        token = create_token(
+            {
+                "user_id": user.id,
+                "tenant_id": tenant.id,
+                "business_type": tenant.business_type,
+                "role": user.role,
+            }
+        )
+        return TenantRegistrationResponse(
+            access_token=token,
+            token_type="bearer",
+            user_id=user.id,
+            tenant_id=tenant.id,
+            role=user.role,
+            business_type=tenant.business_type,
+            slug=tenant.slug,
+        )
+
+    def _generate_unique_slug(self, business_name: str) -> str:
+        """Derive a URL-safe slug from business_name, appending -2/-3/... if taken."""
+        base = self._slugify(business_name)
+        if not self.tenants.get_by_slug(base):
+            return base
+        for suffix in range(2, 10_000):
+            candidate = f"{base}-{suffix}"
+            if not self.tenants.get_by_slug(candidate):
+                return candidate
+        # Practically unreachable
+        raise RuntimeError(f"Could not generate a unique slug from '{business_name}'")
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        """'Papelería Don Jorge' → 'papeleria-don-jorge' (max 55 chars, room for -9999 suffix)."""
+        # Decompose accented chars (á → a + combining accent), then drop non-ASCII
+        text = unicodedata.normalize("NFKD", text)
+        text = text.encode("ascii", "ignore").decode("ascii")
+        text = text.lower()
+        text = re.sub(r"[^a-z0-9]+", "-", text)
+        text = text.strip("-")
+        return text[:55]
 
     # ------------------------------------------------------------------
     # User creation — US-018

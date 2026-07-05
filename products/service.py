@@ -25,7 +25,8 @@ from core.exceptions import (
     InsufficientStockError,
     ProductNotFoundError,
 )
-from db.models import InventoryTransaction, Product
+from core.redis_client import invalidate_storefront_cache
+from db.models import InventoryTransaction, Product, Tenant
 from images.repository import ImageRepository
 from products.models import (
     ProductCreate,
@@ -90,6 +91,7 @@ class ProductService:
             resource_id=product.id,
             after=self._snapshot(product),
         )
+        self._bust_storefront_cache(current_user.tenant_id)
         return self._to_response(product)
 
     def list_products(
@@ -162,6 +164,7 @@ class ProductService:
             before=before,
             after=self._snapshot(product),
         )
+        self._bust_storefront_cache(current_user.tenant_id)
         return self._to_response(product)
 
     def soft_delete_product(self, product_id: str, current_user: CurrentUser) -> None:
@@ -180,6 +183,7 @@ class ProductService:
             resource_id=product.id,
             before=before,
         )
+        self._bust_storefront_cache(current_user.tenant_id)
 
     # ------------------------------------------------------------------
     # Inventory
@@ -290,6 +294,12 @@ class ProductService:
             quantity_after=quantity_after,
             inventory_count=product.inventory_count,
         )
+
+    def _bust_storefront_cache(self, tenant_id: str) -> None:
+        """Invalidate the Redis catalog cache for this tenant's public storefront, if it has one."""
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant and tenant.slug:
+            invalidate_storefront_cache(tenant.slug)
 
     def _require_product(self, product_id: str, tenant_id: str) -> Product:
         product = self.products.get_by_id(tenant_id, product_id)

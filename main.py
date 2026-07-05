@@ -14,20 +14,34 @@ from auth.routes import router as auth_router
 from core.config import settings
 from core.exceptions import (
     AccountLockedError,
+    CartEmptyError,
+    CartUnavailableError,
+    ConsumerAlreadyExistsError,
+    ConsumerNotFoundError,
     DuplicateProductNameError,
     EmailAlreadyExistsError,
     ImageNotFoundError,
     InsufficientStockError,
     InvalidCredentialsError,
     InvalidMetadataError,
+    OrderNotFoundError,
+    PlanLimitExceededError,
     ProductNotFoundError,
+    StorefrontNotFoundError,
     TenantAccessError,
+    TenantAlreadyExistsError,
     TenantNotFoundError,
     UserCreationNotAllowedError,
 )
+from billing.routes import router as billing_router
+from cart.routes import router as cart_router
+from consumers.routes import router as consumers_router
+from explore.routes import router as explore_router
+from orders.routes import router as orders_router
 from images.routes import router as images_router
 from products.routes import router as products_router
 from saasadmin.routes import router as saasadmin_router
+from storefront.routes import router as storefront_router
 
 setup_logging()
 
@@ -64,6 +78,12 @@ async def invalid_credentials_exception_handler(request: Request, exc: InvalidCr
 @app.exception_handler(EmailAlreadyExistsError)
 async def email_already_exists_exception_handler(request: Request, exc: EmailAlreadyExistsError):
     """Duplicate email on registration → 400."""
+    return JSONResponse(status_code=400, content=_error("Email is already registered"))
+
+
+@app.exception_handler(TenantAlreadyExistsError)
+async def tenant_already_exists_exception_handler(request: Request, exc: TenantAlreadyExistsError):
+    """Email already used by a tenant → 400."""
     return JSONResponse(status_code=400, content=_error("Email is already registered"))
 
 
@@ -118,6 +138,42 @@ async def image_not_found_exception_handler(request: Request, exc: ImageNotFound
     return JSONResponse(status_code=404, content=_error("Image not found"))
 
 
+@app.exception_handler(StorefrontNotFoundError)
+async def storefront_not_found_exception_handler(request: Request, exc: StorefrontNotFoundError):
+    """Slug not found, tenant not public, or tenant inactive → 404 (indistinguishable by design)."""
+    return JSONResponse(status_code=404, content=_error("Storefront not found"))
+
+
+@app.exception_handler(PlanLimitExceededError)
+async def plan_limit_exceeded_exception_handler(request: Request, exc: PlanLimitExceededError):
+    return JSONResponse(status_code=402, content=_error(str(exc)))
+
+
+@app.exception_handler(ConsumerAlreadyExistsError)
+async def consumer_already_exists_exception_handler(request: Request, exc: ConsumerAlreadyExistsError):
+    return JSONResponse(status_code=400, content=_error("Email is already registered"))
+
+
+@app.exception_handler(ConsumerNotFoundError)
+async def consumer_not_found_exception_handler(request: Request, exc: ConsumerNotFoundError):
+    return JSONResponse(status_code=404, content=_error("Consumer not found"))
+
+
+@app.exception_handler(CartEmptyError)
+async def cart_empty_exception_handler(request: Request, exc: CartEmptyError):
+    return JSONResponse(status_code=400, content=_error("El carrito está vacío"))
+
+
+@app.exception_handler(CartUnavailableError)
+async def cart_unavailable_exception_handler(request: Request, exc: CartUnavailableError):
+    return JSONResponse(status_code=503, content=_error("Cart service temporarily unavailable"))
+
+
+@app.exception_handler(OrderNotFoundError)
+async def order_not_found_exception_handler(request: Request, exc: OrderNotFoundError):
+    return JSONResponse(status_code=404, content=_error("Order not found"))
+
+
 @app.get("/health")
 async def health_check():
     """Lightweight liveness probe used by Docker healthchecks and uptime checks."""
@@ -128,6 +184,12 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(saasadmin_router, prefix="/api/v1/saasadmin", tags=["saasadmin"])
 app.include_router(products_router, prefix="/api/v1/products", tags=["products"])
 app.include_router(images_router, prefix="/api/v1/products", tags=["images"])
+app.include_router(storefront_router, prefix="/s", tags=["storefront"])
+app.include_router(consumers_router, prefix="/api/v1/consumers", tags=["consumers"])
+app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
+app.include_router(explore_router, prefix="/api/v1/explore", tags=["explore"])
+app.include_router(cart_router, prefix="/api/v1/cart", tags=["cart"])
+app.include_router(orders_router, prefix="/api/v1/orders", tags=["orders"])
 
 
 if __name__ == "__main__":

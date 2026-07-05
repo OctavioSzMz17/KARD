@@ -94,3 +94,51 @@ class TokenResponse(BaseModel):
     tenant_id: str
     role: str
     business_type: str
+
+
+class TenantRegistrationRequest(BaseModel):
+    """
+    Payload for `POST /auth/register-tenant` — self-service B2B onboarding.
+
+    Creates both the tenant record and its first business_admin user in one
+    atomic operation. Returns a JWT so the admin lands directly in the panel.
+    """
+
+    business_name: str = Field(..., min_length=2, max_length=255)
+    business_type: BusinessType
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("business_name")
+    @classmethod
+    def business_name_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("business_name cannot be blank")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not any(ch.isdigit() for ch in v):
+            raise ValueError("Password must contain at least one digit")
+        if not any(ch.isalpha() for ch in v):
+            raise ValueError("Password must contain at least one letter")
+        return v
+
+
+class TenantRegistrationResponse(BaseModel):
+    """
+    Returned by `POST /auth/register-tenant`.
+
+    Includes a ready-to-use JWT plus the assigned slug so the frontend
+    can immediately display the storefront URL to the new admin.
+    """
+
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    tenant_id: str
+    role: str
+    business_type: str
+    slug: str

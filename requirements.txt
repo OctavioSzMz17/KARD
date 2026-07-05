@@ -12,6 +12,7 @@ python-jose[cryptography]
 pydantic[email]
 jsonschema
 redis
+resend
 pytest
 pytest-asyncio
 httpx

@@ -26,6 +26,11 @@ CREATE TABLE tenants (
     config        JSONB              NOT NULL DEFAULT '{}',
     -- config stores: primary_color, secondary_color, accent_color,
     --                logo_url, business_display_name, widget_settings
+    slug          VARCHAR(60)        UNIQUE,
+    -- URL-friendly identifier for the public storefront, e.g. 'papeleria-don-jorge'.
+    -- Generated automatically on self-service registration; NULL until set.
+    is_public     BOOLEAN            NOT NULL DEFAULT FALSE,
+    -- Set to TRUE by business_admin to expose the public storefront at /s/{slug}
     is_active     BOOLEAN            NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ        NOT NULL DEFAULT NOW()
@@ -35,6 +40,8 @@ COMMENT ON TABLE  tenants              IS 'Registered businesses on the KARD Saa
 COMMENT ON COLUMN tenants.id           IS 'Tenant identifier: t_{uuid_short}';
 COMMENT ON COLUMN tenants.config       IS 'JSONB: theme colors, logo, widget visibility preferences';
 COMMENT ON COLUMN tenants.business_type IS 'Determines which metadata schema products must follow';
+COMMENT ON COLUMN tenants.slug         IS 'URL-friendly public identifier. NULL until tenant completes onboarding.';
+COMMENT ON COLUMN tenants.is_public    IS 'Controls whether the storefront is publicly visible at /s/{slug}';
 
 -- =============================================================
 -- TABLE: users
@@ -138,28 +145,6 @@ COMMENT ON COLUMN audit_logs.action  IS 'Verb in SCREAMING_SNAKE_CASE: CREATE_PR
 COMMENT ON COLUMN audit_logs.before_data IS 'State before the operation (null for CREATE)';
 COMMENT ON COLUMN audit_logs.after_data  IS 'State after the operation (null for DELETE)';
 
--- =============================================================
--- TABLE: customers
--- Per-tenant customer directory (prep for Stage 3 public catalog)
--- =============================================================
-CREATE TABLE customers (
-    id          VARCHAR(50)  PRIMARY KEY,
-    tenant_id   VARCHAR(50)  NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-    full_name   VARCHAR(255) NOT NULL,
-    email       VARCHAR(255),
-    phone       VARCHAR(20),
-    is_deleted  BOOLEAN      NOT NULL DEFAULT FALSE,
-    created_by  VARCHAR(50)  REFERENCES users(id) ON DELETE SET NULL,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-
-    -- Prevent duplicate customer emails within the same tenant
-    CONSTRAINT uq_customer_email_tenant UNIQUE (tenant_id, email)
-);
-
-COMMENT ON TABLE  customers           IS 'Per-tenant customer directory';
-COMMENT ON COLUMN customers.id        IS 'Customer identifier: c_{uuid_short}';
-COMMENT ON COLUMN customers.is_deleted IS 'Soft delete flag. Hard deletes are never performed';
 
 -- =============================================================
 -- TABLE: images (polymorphic media assets)
@@ -194,6 +179,7 @@ COMMENT ON COLUMN images.sort_order  IS 'Display order within a gallery; 0 = pri
 -- tenants
 CREATE INDEX idx_tenants_business_type ON tenants(business_type);
 CREATE INDEX idx_tenants_active        ON tenants(is_active) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX uq_tenant_slug     ON tenants(slug) WHERE slug IS NOT NULL;
 
 -- users
 CREATE INDEX idx_users_tenant          ON users(tenant_id);
@@ -239,10 +225,6 @@ CREATE INDEX idx_audit_tenant_date
 CREATE INDEX idx_audit_resource
     ON audit_logs(resource_type, resource_id);
 
--- customers
-CREATE INDEX idx_customers_tenant
-    ON customers(tenant_id)
-    WHERE is_deleted = FALSE;
 
 -- =============================================================
 -- AUTO-UPDATE updated_at TRIGGER
@@ -267,9 +249,6 @@ CREATE TRIGGER set_updated_at_products
     BEFORE UPDATE ON products
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
-CREATE TRIGGER set_updated_at_customers
-    BEFORE UPDATE ON customers
-    FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
 -- =============================================================
 -- VIEWS
@@ -471,6 +450,50 @@ INSERT INTO products (id, tenant_id, product_type, name, price, inventory_count,
 -- WHERE id = 'p_001opti_t_opti01' AND tenant_id = 't_opti01';
 
 CREATE INDEX idx_images_owner ON images (tenant_id, owner_type, owner_id, sort_order);
+
+-- =============================================================
+-- TABLE: consumers (Global B2C identities — MVP Fase 1)
+-- One account per person, works across all public storefronts.
+-- No tenant_id — the tenant is always resolved from the URL slug.
+-- =============================================================
+CREATE TABLE consumers (
+    id              VARCHAR(30)   PRIMARY KEY,
+    email           VARCHAR(255)  UNIQUE NOT NULL,
+    hashed_password VARCHAR(255)  NOT NULL,
+    name            VARCHAR(100),
+    is_active       BOOLEAN       NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  consumers                 IS 'Global B2C consumer identities. No tenant_id — one account spans all storefronts.';
+COMMENT ON COLUMN consumers.id              IS 'Consumer identifier: con_{uuid_short}';
+COMMENT ON COLUMN consumers.hashed_password IS 'bcrypt hash, min 12 rounds';
+
+CREATE INDEX idx_consumers_email ON consumers (email);
+
+-- =============================================================
+-- TABLE: consumer_events (B2C behavioral data — MVP Fase 1)
+-- Records every meaningful action a visitor/consumer takes in
+-- a public storefront. consumer_id is NULL for anonymous visits;
+-- the AI engine in Fase 3 will correlate anonymous → authenticated
+-- sessions after the consumer logs in.
+-- =============================================================
+CREATE TABLE consumer_events (
+    id           VARCHAR(30)  PRIMARY KEY,
+    consumer_id  VARCHAR(30),
+    tenant_id    VARCHAR(30)  NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+    event_type   VARCHAR(50)  NOT NULL,
+    -- 'view_catalog' | 'view_product' | 'search' | 'add_to_cart'
+    payload      JSONB,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  consumer_events             IS 'B2C behavioral events from public storefronts. Fase 3 (AI engine) processes these.';
+COMMENT ON COLUMN consumer_events.consumer_id IS 'NULL = anonymous visitor; populated once consumer authenticates';
+COMMENT ON COLUMN consumer_events.payload     IS 'Event-specific data: {product_id}, {search_term}, etc.';
+
+CREATE INDEX idx_consumer_events_consumer ON consumer_events (consumer_id)              WHERE consumer_id IS NOT NULL;
+CREATE INDEX idx_consumer_events_tenant   ON consumer_events (tenant_id, created_at DESC);
 
 -- =============================================================
 -- END OF SCHEMA

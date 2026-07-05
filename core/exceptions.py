@@ -60,3 +60,35 @@ class UserCreationNotAllowedError(Exception):
     trying to mint a saas_admin, or the one-time saas_admin bootstrap
     being attempted while a platform owner already exists).
     """
+
+
+class TenantAlreadyExistsError(Exception):
+    """Raised when self-service registration is attempted with an email already in use by a tenant."""
+
+
+class StorefrontNotFoundError(Exception):
+    """Raised when a slug resolves to no tenant, or the tenant's storefront is not public."""
+
+
+class PlanLimitExceededError(Exception):
+    """Raised when a tenant tries to exceed the resource limit of their current plan."""
+
+
+class ConsumerAlreadyExistsError(Exception):
+    """Raised when a consumer tries to register with an email already in use."""
+
+
+class ConsumerNotFoundError(Exception):
+    """Raised when a consumer_id does not exist or the account is inactive."""
+
+
+class CartEmptyError(Exception):
+    """Raised when attempting to create an order from an empty cart."""
+
+
+class CartUnavailableError(Exception):
+    """Raised when Redis is unreachable and cart operations cannot be completed."""
+
+
+class OrderNotFoundError(Exception):
+    """Raised when an order does not exist or belongs to a different consumer."""

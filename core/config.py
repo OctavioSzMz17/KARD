@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # CORS - comma-separated list of allowed origins
     CORS_ORIGINS: str
 
+    # Resend — transactional email (leave empty to disable email sending)
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = ""
+    EMAIL_FROM_NAME: str = "KARD"
+    APP_URL: str = "http://localhost:3000"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

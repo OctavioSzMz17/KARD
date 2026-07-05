@@ -27,9 +27,17 @@ class TenantRepository:
         """Tenants carry their own contact email, distinct from user emails."""
         return self.db.query(Tenant).filter(Tenant.email == email).first()
 
+    def get_by_slug(self, slug: str) -> Optional[Tenant]:
+        return self.db.query(Tenant).filter(Tenant.slug == slug).first()
+
     def create(self, tenant: Tenant) -> Tenant:
         self.db.add(tenant)
         self.db.flush()  # assign defaults / surface FK & unique violations early
+        return tenant
+
+    def save(self, tenant: Tenant) -> Tenant:
+        self.db.add(tenant)
+        self.db.flush()
         return tenant
 
 

@@ -147,6 +147,53 @@ async def get_optional_current_user(
     return await get_current_user(token=token, db=db)
 
 
+class CurrentConsumer(BaseModel):
+    """
+    Authenticated B2C consumer context, derived from a consumer JWT.
+
+    Carries only `consumer_id` and `email` — no tenant_id, no role.
+    Tenant context is always resolved from the storefront slug in the URL.
+    """
+
+    consumer_id: str
+    email: str
+
+
+async def get_current_consumer(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> CurrentConsumer:
+    """
+    Validate a consumer bearer token and return the authenticated consumer.
+
+    Rejects tokens that are:
+      - Missing or malformed
+      - Not of type "consumer" (i.e. a B2B token cannot access consumer routes)
+      - Pointing to an inactive or deleted consumer
+    """
+    try:
+        payload = decode_token(token)
+    except JWTError:
+        raise _CREDENTIALS_EXCEPTION
+
+    consumer_id = payload.get("consumer_id")
+    token_type = payload.get("type")
+
+    if not consumer_id or token_type != "consumer":
+        raise _CREDENTIALS_EXCEPTION
+
+    from db.models import Consumer as ConsumerModel
+    db_consumer = (
+        db.query(ConsumerModel)
+        .filter(ConsumerModel.id == consumer_id, ConsumerModel.is_active.is_(True))
+        .first()
+    )
+    if db_consumer is None:
+        raise _CREDENTIALS_EXCEPTION
+
+    return CurrentConsumer(consumer_id=db_consumer.id, email=db_consumer.email)
+
+
 def require_role(*roles: str):
     """
     Build a dependency that only lets callers with one of `roles` through,
@@ -170,7 +217,9 @@ __all__ = [
     "oauth2_scheme",
     "oauth2_scheme_optional",
     "CurrentUser",
+    "CurrentConsumer",
     "get_current_user",
+    "get_current_consumer",
     "get_optional_current_user",
     "get_tenant_id",
     "get_user_id",
