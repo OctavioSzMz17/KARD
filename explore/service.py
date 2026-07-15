@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from core.tenant_config import read_branding, read_profile
 from explore.models import CategoriesResponse, CategoryItem, ExploreResponse, ExploreStoreItem
 from explore.repository import ExploreRepository
 
@@ -44,6 +45,8 @@ class ExploreService:
                     slug=t.slug,
                     business_name=t.business_name,
                     business_type=t.business_type,
+                    logo_url=read_branding(t.config)["logo_url"],
+                    tagline=read_profile(t.config)["tagline"],
                 )
                 for t in items
             ],

@@ -4,6 +4,8 @@ Pydantic schemas for the explore / discovery module.
 These are public-facing — never expose internal tenant fields.
 """
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -24,6 +26,8 @@ class ExploreStoreItem(BaseModel):
     slug: str
     business_name: str
     business_type: str
+    logo_url: Optional[str] = None
+    tagline: Optional[str] = None
 
 
 class ExploreResponse(BaseModel):

@@ -24,7 +24,9 @@ from core.exceptions import (
     InsufficientStockError,
     InvalidCredentialsError,
     InvalidMetadataError,
+    InvalidRecipeError,
     OrderNotFoundError,
+    OrderStockConflictError,
     PlanLimitExceededError,
     ProductNotFoundError,
     StorefrontNotFoundError,
@@ -38,9 +40,11 @@ from cart.routes import router as cart_router
 from consumers.routes import router as consumers_router
 from explore.routes import router as explore_router
 from orders.routes import router as orders_router
+from recipes.routes import router as recipes_router
 from images.routes import router as images_router
 from products.routes import router as products_router
 from saasadmin.routes import router as saasadmin_router
+from settings.routes import router as settings_router
 from storefront.routes import router as storefront_router
 
 setup_logging()
@@ -174,6 +178,44 @@ async def order_not_found_exception_handler(request: Request, exc: OrderNotFound
     return JSONResponse(status_code=404, content=_error("Order not found"))
 
 
+@app.exception_handler(InvalidRecipeError)
+async def invalid_recipe_exception_handler(request: Request, exc: InvalidRecipeError):
+    """Recipe item with wrong product types or self-reference → 400."""
+    return JSONResponse(status_code=400, content=_error(str(exc)))
+
+
+@app.exception_handler(OrderStockConflictError)
+async def order_stock_conflict_exception_handler(request: Request, exc: OrderStockConflictError):
+    """
+    Checkout stock conflict → 409 with a machine-readable body the frontend
+    uses to ask the user: continue without these items, or cancel the order.
+
+    Shape:
+      {
+        "success": false,
+        "code": "INSUFFICIENT_STOCK",
+        "error": "<mensaje legible>",
+        "details": { "all_unavailable": bool, "unavailable": [ ... ] }
+      }
+    """
+    if exc.all_skipped:
+        message = "Ningún producto del pedido tiene stock suficiente"
+    else:
+        message = "Algunos productos no tienen stock suficiente"
+    return JSONResponse(
+        status_code=409,
+        content={
+            "success": False,
+            "code": "INSUFFICIENT_STOCK",
+            "error": message,
+            "details": {
+                "all_unavailable": exc.all_skipped,
+                "unavailable": exc.unavailable,
+            },
+        },
+    )
+
+
 @app.get("/health")
 async def health_check():
     """Lightweight liveness probe used by Docker healthchecks and uptime checks."""
@@ -184,12 +226,14 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(saasadmin_router, prefix="/api/v1/saasadmin", tags=["saasadmin"])
 app.include_router(products_router, prefix="/api/v1/products", tags=["products"])
 app.include_router(images_router, prefix="/api/v1/products", tags=["images"])
+app.include_router(recipes_router, prefix="/api/v1/products", tags=["recipes"])
 app.include_router(storefront_router, prefix="/s", tags=["storefront"])
 app.include_router(consumers_router, prefix="/api/v1/consumers", tags=["consumers"])
 app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
 app.include_router(explore_router, prefix="/api/v1/explore", tags=["explore"])
 app.include_router(cart_router, prefix="/api/v1/cart", tags=["cart"])
 app.include_router(orders_router, prefix="/api/v1/orders", tags=["orders"])
+app.include_router(settings_router, prefix="/api/v1/settings", tags=["settings"])
 
 
 if __name__ == "__main__":

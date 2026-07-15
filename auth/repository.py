@@ -23,6 +23,22 @@ class TenantRepository:
     def get_by_id(self, tenant_id: str) -> Optional[Tenant]:
         return self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
+    def get_by_id_for_update(self, tenant_id: str) -> Optional[Tenant]:
+        """
+        Row-locked read (SELECT ... FOR UPDATE), held until the transaction
+        commits.
+
+        Required for read-modify-write of the `config` JSONB: `branding` and
+        `profile` live in the same column, so two concurrent PUTs would
+        otherwise clobber each other (lost update). The lock serializes them.
+        """
+        return (
+            self.db.query(Tenant)
+            .filter(Tenant.id == tenant_id)
+            .with_for_update()
+            .first()
+        )
+
     def get_by_email(self, email: str) -> Optional[Tenant]:
         """Tenants carry their own contact email, distinct from user emails."""
         return self.db.query(Tenant).filter(Tenant.email == email).first()

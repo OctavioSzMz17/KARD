@@ -30,10 +30,16 @@ def create_order(
 ) -> OrderResponse:
     """
     Converts the consumer's cart for `slug` into a confirmed order.
-    Validates stock, decrements inventory, and clears the cart atomically.
-    Returns the created order with status 'pending'.
+    Valida stock del producto final y de sus insumos (receta), descuenta
+    inventario en cascada, y vacía el carrito — todo atómico.
+
+    Si algo no tiene stock:
+      - on_insufficient_stock="reject" (default) → 409 con el detalle.
+      - on_insufficient_stock="skip" → crea el pedido omitiendo lo faltante.
     """
-    return OrderService(db).create_from_cart(consumer.consumer_id, payload.slug)
+    return OrderService(db).create_from_cart(
+        consumer.consumer_id, payload.slug, payload.on_insufficient_stock
+    )
 
 
 @router.get(

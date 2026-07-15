@@ -287,3 +287,34 @@ class OrderItem(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<OrderItem order_id={self.order_id!r} product_id={self.product_id!r} qty={self.quantity}>"
+
+
+class ProductRecipe(Base):
+    """
+    Recipe / Bill-of-Materials line: a final product (e.g. a dish) is made
+    of one or more insumos (ingredients), each consumed in a fixed quantity
+    per unit sold.
+
+    When a final product with a recipe is sold, its own stock is decremented
+    AND every linked insumo's stock is decremented by `quantity * units_sold`,
+    all inside the same atomic transaction as the order.
+
+    `quantity` is an integer number of insumo stock-units consumed per unit
+    of the final product (kept integer to stay consistent with the integer
+    inventory_count + inventory_transactions audit trail).
+    """
+
+    __tablename__ = "product_recipes"
+
+    id = Column(String(50), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    final_product_id = Column(String(60), ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    insumo_product_id = Column(String(60), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<ProductRecipe final={self.final_product_id!r} "
+            f"insumo={self.insumo_product_id!r} qty={self.quantity}>"
+        )

@@ -1,12 +1,17 @@
 """
-Order business logic — converts a Redis cart into a DB-persisted order.
+Order business logic — converts a Redis cart into a DB-persisted order,
+descontando el stock del producto final Y de sus insumos (receta).
 
-The critical section is atomic:
-  SELECT FOR UPDATE on every product → check stock → decrement → write
-  inventory_transaction → create order + items → COMMIT → delete cart key.
-
-If any product is out of stock the whole transaction rolls back and the
-cart is untouched. Redis cart is only deleted after a successful commit.
+Flujo de checkout:
+  1. Analiza cada producto del carrito bajo bloqueo de fila (SELECT FOR UPDATE):
+     valida su propio stock y el de cada insumo de su receta.
+  2. Si algo no alcanza:
+       - on_insufficient_stock="reject" (default): rollback y OrderStockConflictError
+         → 409 con el detalle estructurado para que el front pregunte al usuario.
+       - on_insufficient_stock="skip": omite esos productos y sigue con el resto,
+         reportándolos en `skipped`. Si no queda nada, 409 (all_skipped).
+  3. Descuenta stock del final y de cada insumo, registra inventory_transactions,
+     crea Order + OrderItems, COMMIT, y borra el carrito de Redis.
 """
 
 import json
@@ -17,13 +22,13 @@ from sqlalchemy.orm import Session
 
 from core.exceptions import (
     CartEmptyError,
-    InsufficientStockError,
     OrderNotFoundError,
+    OrderStockConflictError,
     StorefrontNotFoundError,
 )
 from core.redis_client import get_redis
-from db.models import InventoryTransaction, Order, OrderItem, Product
-from orders.models import OrderItemResponse, OrderListResponse, OrderResponse
+from db.models import InventoryTransaction, Order, OrderItem, Product, ProductRecipe
+from orders.models import OrderItemResponse, OrderListResponse, OrderResponse, SkippedItemResponse
 from orders.repository import OrderRepository
 from storefront.repository import StorefrontRepository
 from utils.helpers import generate_id
@@ -36,19 +41,12 @@ class OrderService:
         self.db = db
         self.repo = OrderRepository(db)
 
-    def create_from_cart(self, consumer_id: str, slug: str) -> OrderResponse:
-        """
-        Convert the consumer's cart for `slug` into a confirmed order.
-
-        Steps (all inside one DB transaction):
-          1. Validate storefront exists and is public.
-          2. Load cart from Redis — raise CartEmptyError if empty.
-          3. For each item: SELECT FOR UPDATE, validate stock, decrement,
-             record InventoryTransaction.
-          4. Create Order + OrderItems.
-          5. COMMIT.
-          6. Delete Redis cart key.
-        """
+    def create_from_cart(
+        self,
+        consumer_id: str,
+        slug: str,
+        on_insufficient_stock: str = "reject",
+    ) -> OrderResponse:
         tenant = StorefrontRepository(self.db).get_public_tenant_by_slug(slug)
         if tenant is None:
             raise StorefrontNotFoundError(slug)
@@ -61,34 +59,161 @@ class OrderService:
         if not cart:
             raise CartEmptyError("El carrito está vacío")
 
-        total = Decimal("0.00")
-        items_data = []
+        fulfillable, unavailable = self._analyze_cart(tenant.id, cart)
+
+        if unavailable:
+            if on_insufficient_stock != "skip":
+                self.db.rollback()  # release row locks, change nothing
+                raise OrderStockConflictError(unavailable)
+            if not fulfillable:
+                self.db.rollback()
+                raise OrderStockConflictError(unavailable, all_skipped=True)
+
+        skipped = [
+            SkippedItemResponse(
+                product_id=u["product_id"],
+                product_name=u["product_name"],
+                reason=u["reason"],
+            )
+            for u in unavailable
+        ]
+
+        order, items_data = self._apply(tenant, consumer_id, fulfillable)
+
+        self.db.commit()
+        logger.info(
+            "Order created: order_id=%s consumer=%s tenant=%s total=%s skipped=%d",
+            order.id, consumer_id, tenant.id, order.total, len(skipped),
+        )
+
+        # Clear cart only after successful commit
+        if r:
+            r.delete(cart_key)
+
+        return self._to_response(order, items_data, slug, tenant.business_name, skipped)
+
+    # ------------------------------------------------------------------
+    # Phase 1 — analysis (row-locks every final + insumo involved)
+    # ------------------------------------------------------------------
+    def _analyze_cart(self, tenant_id: str, cart: dict) -> tuple[list[dict], list[dict]]:
+        fulfillable: list[dict] = []
+        unavailable: list[dict] = []
 
         for product_id, entry in cart.items():
-            quantity = entry["quantity"]
+            quantity = int(entry["quantity"])
+            display_name = entry.get("name") or product_id
 
             product = (
                 self.db.query(Product)
                 .filter(
                     Product.id == product_id,
-                    Product.tenant_id == tenant.id,
+                    Product.tenant_id == tenant_id,
                     Product.is_deleted.is_(False),
                 )
-                .with_for_update()  # row-level lock — prevents overselling
+                .with_for_update()
                 .first()
             )
-            if product is None:
-                raise StorefrontNotFoundError(f"Producto '{product_id}' ya no está disponible")
 
-            if product.inventory_count < quantity:
-                raise InsufficientStockError(
-                    f"Stock insuficiente para '{product.name}': "
-                    f"disponible {product.inventory_count}, solicitado {quantity}"
+            if product is None:
+                unavailable.append({
+                    "product_id": product_id,
+                    "product_name": display_name,
+                    "requested": quantity,
+                    "reason": "unavailable",
+                })
+                continue
+
+            recipes = (
+                self.db.query(ProductRecipe)
+                .filter(
+                    ProductRecipe.final_product_id == product.id,
+                    ProductRecipe.tenant_id == tenant_id,
                 )
+                .all()
+            )
+
+            product_short = product.inventory_count < quantity
+            missing: list[dict] = []
+            ingredient_plan: list[tuple] = []
+
+            for rec in recipes:
+                insumo = (
+                    self.db.query(Product)
+                    .filter(
+                        Product.id == rec.insumo_product_id,
+                        Product.tenant_id == tenant_id,
+                        Product.is_deleted.is_(False),
+                    )
+                    .with_for_update()
+                    .first()
+                )
+                need = rec.quantity * quantity
+                unit = None
+                if insumo is not None and isinstance(insumo.metadata_, dict):
+                    unit = insumo.metadata_.get("unidad_medida")
+
+                if insumo is None:
+                    missing.append({
+                        "insumo_id": rec.insumo_product_id,
+                        "insumo_name": "(insumo no disponible)",
+                        "required": need,
+                        "available": 0,
+                        "unit": unit,
+                    })
+                    continue
+
+                ingredient_plan.append((insumo, need))
+                if insumo.inventory_count < need:
+                    missing.append({
+                        "insumo_id": insumo.id,
+                        "insumo_name": insumo.name,
+                        "required": need,
+                        "available": insumo.inventory_count,
+                        "unit": unit,
+                    })
+
+            if product_short or missing:
+                if product_short and missing:
+                    reason = "product_and_ingredient"
+                elif product_short:
+                    reason = "product_shortage"
+                else:
+                    reason = "ingredient_shortage"
+
+                item = {
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "requested": quantity,
+                    "reason": reason,
+                }
+                if product_short:
+                    item["available"] = product.inventory_count
+                if missing:
+                    item["missing_ingredients"] = missing
+                unavailable.append(item)
+                continue
+
+            fulfillable.append({
+                "product": product,
+                "quantity": quantity,
+                "ingredients": ingredient_plan,
+            })
+
+        return fulfillable, unavailable
+
+    # ------------------------------------------------------------------
+    # Phase 2 — apply (decrement stock + write order). No commit here.
+    # ------------------------------------------------------------------
+    def _apply(self, tenant, consumer_id: str, fulfillable: list[dict]) -> tuple[Order, list[dict]]:
+        total = Decimal("0.00")
+        items_data: list[dict] = []
+
+        for plan in fulfillable:
+            product = plan["product"]
+            quantity = plan["quantity"]
 
             before = product.inventory_count
-            product.inventory_count -= quantity
-
+            product.inventory_count = before - quantity
             self.db.add(InventoryTransaction(
                 product_id=product.id,
                 tenant_id=tenant.id,
@@ -96,8 +221,22 @@ class OrderService:
                 quantity_change=-quantity,
                 quantity_before=before,
                 quantity_after=product.inventory_count,
-                notes="Pedido de cliente B2C",
+                notes="Venta B2C (producto final)",
             ))
+
+            # Cascade: decrement each ingredient of the recipe
+            for insumo, need in plan["ingredients"]:
+                ins_before = insumo.inventory_count
+                insumo.inventory_count = ins_before - need
+                self.db.add(InventoryTransaction(
+                    product_id=insumo.id,
+                    tenant_id=tenant.id,
+                    action="sell",
+                    quantity_change=-need,
+                    quantity_before=ins_before,
+                    quantity_after=insumo.inventory_count,
+                    notes=f"Consumo por venta de '{product.name}'",
+                ))
 
             subtotal = product.price * quantity
             total += subtotal
@@ -130,16 +269,11 @@ class OrderService:
                 subtotal=item["subtotal"],
             ))
 
-        self.db.commit()
-        logger.info("Order created: order_id=%s consumer=%s tenant=%s total=%s",
-                    order.id, consumer_id, tenant.id, total)
+        return order, items_data
 
-        # Clear cart only after successful commit
-        if r:
-            r.delete(cart_key)
-
-        return self._to_response(order, items_data, slug, tenant.business_name)
-
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
     def get_order(self, consumer_id: str, order_id: str) -> OrderResponse:
         order = self.repo.get_by_id(order_id, consumer_id)
         if order is None:
@@ -156,7 +290,7 @@ class OrderService:
         )
 
     @staticmethod
-    def _to_response(order: Order, items_data: list, slug: str, business_name: str) -> OrderResponse:
+    def _to_response(order, items_data, slug, business_name, skipped=None) -> OrderResponse:
         return OrderResponse(
             order_id=order.id,
             slug=slug,
@@ -173,6 +307,7 @@ class OrderService:
                 )
                 for i in items_data
             ],
+            skipped=skipped or [],
             created_at=order.created_at,
         )
 
@@ -194,5 +329,6 @@ class OrderService:
                 )
                 for item in order.items
             ],
+            skipped=[],
             created_at=order.created_at,
         )

@@ -92,3 +92,24 @@ class CartUnavailableError(Exception):
 
 class OrderNotFoundError(Exception):
     """Raised when an order does not exist or belongs to a different consumer."""
+
+
+class InvalidRecipeError(Exception):
+    """
+    Raised when a recipe item is invalid: the parent is not a 'final' product,
+    the ingredient is not an 'insumo', or a product references itself.
+    """
+
+
+class OrderStockConflictError(Exception):
+    """
+    Raised at checkout when one or more products (or their ingredients) lack
+    stock. Carries the structured `unavailable` list so the API can return a
+    machine-readable 409 the frontend can interpret to ask the user whether
+    to continue without those items or cancel the whole order.
+    """
+
+    def __init__(self, unavailable: list[dict], all_skipped: bool = False):
+        self.unavailable = unavailable
+        self.all_skipped = all_skipped
+        super().__init__("insufficient stock for one or more items")

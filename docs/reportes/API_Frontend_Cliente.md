@@ -331,27 +331,185 @@ Lista paginada de tiendas públicas activas.
 
 ## 5. Carrito y Pedidos
 
-> 🚧 **Próximamente — PASO 8/9**
+El carrito es **por tienda** — no se mezclan productos de distintos negocios. Vive en el servidor (Redis) asociado al consumer, con duración de 7 días. Todos los endpoints requieren 🔒 **Consumer JWT**.
 
-El carrito es **por tienda** — no se mezclan productos de distintos negocios.
+### 5.1 Carrito
 
-**Endpoints planeados:**
+#### `POST /api/v1/cart/{slug}/items`
+Agrega o actualiza un producto. La cantidad es **absoluta** (no incremental). `quantity: 0` elimina el item.
 
+**Request:**
+```json
+{ "product_id": "p_abc123", "quantity": 2 }
 ```
-POST   /api/v1/orders              → crear pedido (consumer JWT requerido)
-GET    /api/v1/orders/{order_id}   → detalle del pedido
-POST   /api/v1/orders/{order_id}/pay → iniciar pago con Stripe
-```
 
-**Body de crear pedido (borrador):**
+**Response `200`:**
 ```json
 {
-  "slug": "optica-vision-total",
+  "slug": "buena-vista",
+  "business_name": "Buena vista",
   "items": [
-    { "product_id": "p_abc123", "quantity": 1 }
-  ]
+    {
+      "product_id": "p_abc123",
+      "name": "Lente Monofocal CR-39",
+      "quantity": 2,
+      "price_snapshot": "50.00",
+      "subtotal": "100.00"
+    }
+  ],
+  "total": "100.00",
+  "item_count": 2
 }
 ```
+> `price_snapshot` = precio al momento de agregar. Puede diferir del precio actual si el negocio lo cambió.
+
+#### `GET /api/v1/cart/{slug}`
+Ver el carrito actual de una tienda. Mismo schema que arriba.
+
+#### `DELETE /api/v1/cart/{slug}/items/{product_id}`
+Quita un producto. Devuelve el carrito actualizado.
+
+#### `DELETE /api/v1/cart/{slug}`
+Vacía todo el carrito. Responde `204 No Content`.
+
+---
+
+### 5.2 Pedidos
+
+#### `POST /api/v1/orders` — Confirmar pedido (checkout)
+
+Convierte el carrito en pedido. Descuenta el stock del producto **y de sus ingredientes** (si es un platillo con receta), todo atómico.
+
+**Request:**
+```json
+{
+  "slug": "buena-vista",
+  "on_insufficient_stock": "reject"
+}
+```
+
+| Campo | Valores | Default | Qué hace |
+|---|---|---|---|
+| `slug` | string | — | Tienda del carrito |
+| `on_insufficient_stock` | `"reject"` \| `"skip"` | `"reject"` | Qué hacer si falta stock |
+
+**Response `201` (éxito):**
+```json
+{
+  "order_id": "ord_3f9a2b1c9d4e",
+  "slug": "buena-vista",
+  "business_name": "Buena vista",
+  "status": "pending",
+  "total": "100.00",
+  "items": [
+    { "product_id": "p_abc123", "product_name": "Lente Monofocal CR-39",
+      "quantity": 2, "unit_price": "50.00", "subtotal": "100.00" }
+  ],
+  "skipped": [],
+  "created_at": "2026-07-11T18:30:00Z"
+}
+```
+
+---
+
+### 5.3 ⭐ Flujo de confirmación cuando falta stock
+
+Este es el flujo clave que el front debe manejar:
+
+```
+1. Front llama POST /orders con on_insufficient_stock:"reject" (o sin el campo)
+        │
+        ├─ Todo OK → 201, pedido creado
+        │
+        └─ Falta stock → 409 con code:"INSUFFICIENT_STOCK" y el detalle
+                │
+                ▼
+        Front muestra al usuario qué falta y pregunta:
+        ┌─────────────────────────────────────────────┐
+        │ "No hay stock de X. ¿Qué quieres hacer?"    │
+        │  [ Continuar sin esos ]   [ Cancelar ]      │
+        └─────────────────────────────────────────────┘
+                │                        │
+    "Continuar" │                        │ "Cancelar"
+                ▼                        ▼
+    Reenvía POST /orders          No hace nada.
+    con on_insufficient_stock:    El carrito queda intacto.
+    "skip"  → 201 con `skipped`
+```
+
+**Respuesta `409` (conflicto de stock):**
+```json
+{
+  "success": false,
+  "code": "INSUFFICIENT_STOCK",
+  "error": "Algunos productos no tienen stock suficiente",
+  "details": {
+    "all_unavailable": false,
+    "unavailable": [
+      {
+        "product_id": "p_tacos",
+        "product_name": "Tacos al pastor",
+        "requested": 3,
+        "reason": "ingredient_shortage",
+        "missing_ingredients": [
+          { "insumo_id": "p_carne", "insumo_name": "Carne de cerdo",
+            "required": 6, "available": 2, "unit": "kg" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Cómo interpretar `unavailable[].reason`:**
+
+| `reason` | Significado | Campos extra |
+|---|---|---|
+| `product_shortage` | El producto no tiene suficiente stock propio | `available` (stock actual) |
+| `ingredient_shortage` | Un platillo no tiene suficientes ingredientes | `missing_ingredients[]` |
+| `product_and_ingredient` | Faltan ambos | `available` + `missing_ingredients[]` |
+| `unavailable` | El producto fue eliminado o ya no existe | — |
+
+- `details.all_unavailable: true` → **ningún** producto se puede vender; ni con `skip` se crearía pedido (el `skip` en este caso devuelve otro 409).
+
+**Segundo intento con `skip`** → `201`, y los omitidos llegan en `skipped`:
+```json
+{
+  "order_id": "ord_...",
+  "status": "pending",
+  "items": [ /* lo que sí se pudo */ ],
+  "skipped": [
+    { "product_id": "p_tacos", "product_name": "Tacos al pastor", "reason": "ingredient_shortage" }
+  ],
+  "total": "...",
+  "...": "..."
+}
+```
+> Con `skip`, si el pedido se crea, **el carrito se vacía completo**. Muestra al usuario los `skipped` para que sepa qué no se incluyó.
+
+---
+
+#### `GET /api/v1/orders` — Mis pedidos
+Lista paginada de los pedidos del consumer (todas las tiendas). Params `?page=1&page_size=20`.
+
+```json
+{ "items": [ /* OrderResponse */ ], "total": 5, "page": 1, "page_size": 20 }
+```
+
+#### `GET /api/v1/orders/{order_id}` — Detalle
+Un consumer solo ve **sus** pedidos; otro id devuelve `404`.
+
+---
+
+### 5.4 Estados del pedido
+
+```
+pending → paid → fulfilled
+   └──────────→ canceled
+```
+`pending` (creado, sin pagar) · `paid` (pago Stripe confirmado) · `fulfilled` (entregado) · `canceled`.
+
+> El pago (`pending → paid`) se conectará cuando Stripe esté activo. Por ahora el pedido nace en `pending`.
 
 ---
 
@@ -369,11 +527,15 @@ Todos los errores siguen el mismo sobre:
 
 | HTTP | Cuándo ocurre |
 |---|---|
-| `400` | Email ya registrado, validación de negocio |
+| `400` | Email ya registrado, carrito vacío, validación de negocio |
 | `401` | Token inválido / expirado / no enviado |
-| `404` | Slug no existe, producto no encontrado |
+| `404` | Slug no existe, producto o pedido no encontrado |
+| `409` | **Conflicto de stock en checkout** — trae `code: "INSUFFICIENT_STOCK"` y `details.unavailable[]` (ver §5.3) |
 | `422` | Validación de Pydantic: campo faltante, tipo incorrecto, password débil |
+| `503` | Carrito no disponible (Redis caído) — reintentar |
 | `500` | Error interno — reportar al backend |
+
+> **Tip para el front:** revisa siempre el campo `code` cuando exista. Hoy el único código estructurado es `INSUFFICIENT_STOCK` (409), pensado para que puedas ramificar la lógica sin parsear el mensaje de texto.
 
 ### Ejemplo de error 422 (validation)
 ```json

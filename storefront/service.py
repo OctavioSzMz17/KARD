@@ -16,12 +16,17 @@ from sqlalchemy.orm import Session
 
 from core.exceptions import StorefrontNotFoundError
 from core.redis_client import STOREFRONT_CACHE_TTL, get_redis
+from core.tenant_config import read_branding, read_profile
 from images.repository import ImageRepository
 from storefront.models import (
+    StorefrontContact,
+    StorefrontHourEntry,
     StorefrontImageResponse,
     StorefrontProductListResponse,
     StorefrontProductResponse,
+    StorefrontSocial,
     StorefrontTenantResponse,
+    StorefrontTheme,
 )
 from storefront.repository import StorefrontRepository
 
@@ -47,10 +52,39 @@ class StorefrontService:
         self.repo.record_event(tenant.id, "view_storefront", {"slug": slug})
         self.db.commit()
 
+        branding = read_branding(tenant.config)
+        theme = branding["theme"]
+        profile = read_profile(tenant.config)
+
         return StorefrontTenantResponse(
             slug=tenant.slug,
             business_name=tenant.business_name,
             business_type=tenant.business_type,
+            logo_url=branding["logo_url"],
+            banner_url=branding["banner_url"],
+            theme=StorefrontTheme(primary=theme["primary"], accent=theme["accent"]),
+            tagline=profile["tagline"],
+            description=profile["description"],
+            contact=self._to_public_contact(profile["contact"]),
+        )
+
+    @staticmethod
+    def _to_public_contact(contact: dict) -> StorefrontContact:
+        social = contact["social"]
+        return StorefrontContact(
+            address=contact["address"],
+            phone=contact["phone"],
+            email=contact["email"],
+            whatsapp=contact["whatsapp"],
+            maps_url=contact["maps_url"],
+            hours=[StorefrontHourEntry(days=h["days"], hours=h["hours"]) for h in contact["hours"]],
+            social=StorefrontSocial(
+                facebook=social["facebook"],
+                instagram=social["instagram"],
+                tiktok=social["tiktok"],
+                x=social["x"],
+                youtube=social["youtube"],
+            ),
         )
 
     def list_products(
