@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<title>KARD — Primer Avance</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'default' });</script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 10.5pt; line-height: 1.6; color: #1a1a2e;
+    background: #fff; padding: 40px 55px; max-width: 900px; margin: 0 auto;
+  }
+  .cover {
+    text-align: center; padding: 120px 0 80px; page-break-after: always;
+  }
+  .cover h1 { font-size: 34pt; border: none; color: #1e1b4b; }
+  .cover .sub { font-size: 14pt; color: #6366f1; margin-top: 8px; font-weight: 600; }
+  .cover .meta { margin-top: 60px; font-size: 12pt; color: #444; line-height: 2; }
+
+  h1 { font-size: 20pt; font-weight: 800; margin: 0 0 12px; color: #1e1b4b; border-bottom: 3px solid #6366f1; padding-bottom: 8px; }
+  h2 { font-size: 14pt; font-weight: 700; margin: 26px 0 8px; color: #312e81; border-left: 4px solid #6366f1; padding-left: 10px; }
+  h3 { font-size: 11.5pt; font-weight: 600; margin: 18px 0 6px; color: #4338ca; }
+  p  { margin: 7px 0; }
+  ul, ol { margin: 7px 0 7px 22px; }
+  li { margin: 3px 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 9pt; }
+  th { background: #eef2ff; color: #3730a3; font-weight: 700; font-size: 8pt;
+       text-transform: uppercase; letter-spacing: 0.3px; padding: 6px 8px;
+       border: 1px solid #c7d2fe; text-align: left; }
+  td { padding: 5px 8px; border: 1px solid #e0e7ff; vertical-align: top; }
+  tr:nth-child(even) td { background: #f5f3ff; }
+
+  pre { font-family: 'Consolas', monospace; font-size: 8pt; background: #1e1b4b;
+        color: #e2e8f0; border-radius: 6px; padding: 12px 14px; margin: 10px 0;
+        overflow-x: auto; page-break-inside: avoid; }
+  code { font-family: 'Consolas', monospace; font-size: 8.5pt; background: #eef2ff;
+         color: #4338ca; padding: 1px 5px; border-radius: 3px; }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  .mermaid { text-align: center; margin: 18px 0; page-break-inside: avoid; }
+  hr { border: none; border-top: 1.5px solid #e0e7ff; margin: 22px 0; }
+  strong { color: #312e81; }
+  blockquote { border-left: 3px solid #6366f1; padding-left: 12px; color: #4338ca; margin: 10px 0; }
+  .page-break { page-break-after: always; }
+  .doc { padding-top: 8px; }
+
+  @media print {
+    body { padding: 15px 25px; }
+    h2, h3 { page-break-after: avoid; }
+    table, pre, .mermaid { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+  <div class="cover">
+    <h1>KARD</h1>
+    <div class="sub">Plataforma SaaS Marketplace B2B2C</div>
+    <div class="sub" style="font-size:16pt;margin-top:40px;color:#1e1b4b;">Primer Avance</div>
+    <div class="meta">
+      <strong>Equipo:</strong><br/>
+      Octavio Sánchez Mendoza<br/>
+      Brayan Adonai Díaz Santiago<br/><br/>
+      <strong>Sprint 1:</strong> 02-jul-2026 → 09-jul-2026
+    </div>
+  </div>
+  <section class="doc">
+<h1>KARD — Requisitos, Casos de Uso e Historias de Usuario Valoradas</h1>
+<p><strong>Entregable:</strong> Primer Avance · Punto 1 (CU/HU y requisitos)<br />
+<strong>Equipo:</strong> Octavio Sánchez Mendoza · Brayan Adonai Díaz Santiago<br />
+<strong>Sprint:</strong> 02-jul-2026 → 09-jul-2026</p>
+<hr />
+<h2>1. Descripción del proyecto</h2>
+<p><strong>KARD</strong> es una plataforma SaaS tipo <em>marketplace</em> B2B2C. Los negocios (restaurantes y ópticas) pagan una suscripción, crean su tienda y administran su catálogo. Los clientes entran a la plataforma, descubren tiendas por categoría, arman su carrito y realizan pedidos.</p>
+<p><strong>Actores:</strong>
+- <strong>Negocio (business_admin)</strong> — dueño/empleado que administra su tienda.
+- <strong>Cliente (consumer)</strong> — identidad global que compra en cualquier tienda pública.
+- <strong>Administrador de plataforma (saas_admin)</strong> — gestiona los negocios de KARD.</p>
+<hr />
+<h2>2. Requisitos funcionales (RF)</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requisito</th>
+<th>Prioridad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RF-01</td>
+<td>El negocio puede registrarse de forma self-service (crea tenant + su primer admin)</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-02</td>
+<td>El negocio puede iniciar sesión con email y contraseña (JWT)</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-03</td>
+<td>El negocio puede crear, editar, listar y eliminar (soft-delete) productos</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-04</td>
+<td>El negocio puede administrar inventario (vender/reabastecer) con historial</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-05</td>
+<td>El negocio puede subir imágenes a sus productos</td>
+<td>Media</td>
+</tr>
+<tr>
+<td>RF-06</td>
+<td>El cliente puede ver la tienda pública de un negocio por su URL (slug)</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-07</td>
+<td>El cliente puede explorar tiendas por categoría y búsqueda</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-08</td>
+<td>El cliente puede registrarse e iniciar sesión (identidad global)</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-09</td>
+<td>El cliente puede agregar productos a un carrito por tienda</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-10</td>
+<td>El cliente puede confirmar un pedido (checkout) que descuenta inventario</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>RF-11</td>
+<td>El sistema envía correos transaccionales (bienvenida, etc.)</td>
+<td>Media</td>
+</tr>
+<tr>
+<td>RF-12</td>
+<td>El catálogo público se sirve con caché para acelerar la respuesta</td>
+<td>Media</td>
+</tr>
+<tr>
+<td>RF-13</td>
+<td>El sistema deja lista la integración de pagos por suscripción (Stripe)</td>
+<td>Baja</td>
+</tr>
+</tbody>
+</table>
+<h2>3. Requisitos no funcionales (RNF)</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requisito</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RNF-01</td>
+<td>Aislamiento multi-tenant: un negocio nunca accede a datos de otro (respuesta 404)</td>
+</tr>
+<tr>
+<td>RNF-02</td>
+<td>El <code>tenant_id</code> nunca se confía del request; se deriva del JWT o del slug</td>
+</tr>
+<tr>
+<td>RNF-03</td>
+<td>Contraseñas cifradas con bcrypt; autenticación por JWT</td>
+</tr>
+<tr>
+<td>RNF-04</td>
+<td>Toda la configuración vive en variables de entorno (<code>.env</code>), nada hardcodeado</td>
+</tr>
+<tr>
+<td>RNF-05</td>
+<td>La API responde JSON con formato de error uniforme <code>{success, error}</code></td>
+</tr>
+<tr>
+<td>RNF-06</td>
+<td>Degradación con gracia: si Redis del caché cae, se responde desde la BD</td>
+</tr>
+<tr>
+<td>RNF-07</td>
+<td>El checkout es atómico (bloqueo de fila) para evitar sobreventa</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>4. Casos de uso</h2>
+<pre><code>        ┌─────────────────────── KARD ───────────────────────┐
+        │                                                      │
+ Negocio│  (CU-01) Registrar negocio                           │
+   ○────┼─▶ (CU-02) Iniciar sesión                             │
+  /|\   │  (CU-03) Gestionar productos                         │
+  / \   │  (CU-04) Gestionar inventario                        │
+        │  (CU-05) Subir imágenes                              │
+        │                                                      │
+ Cliente│  (CU-06) Explorar tiendas                            │
+   ○────┼─▶ (CU-07) Ver catálogo de tienda                     │
+  /|\   │  (CU-08) Registrarse / iniciar sesión                │
+  / \   │  (CU-09) Administrar carrito                         │
+        │  (CU-10) Confirmar pedido                            │
+        │                                                      │
+SaaS    │  (CU-11) Administrar negocios de la plataforma       │
+ admin ○┼─▶                                                    │
+        └──────────────────────────────────────────────────────┘
+</code></pre>
+<h3>Detalle de casos de uso clave</h3>
+<p><strong>CU-10 — Confirmar pedido</strong>
+- <strong>Actor:</strong> Cliente
+- <strong>Precondición:</strong> Cliente autenticado, carrito con al menos un producto.
+- <strong>Flujo principal:</strong>
+  1. El cliente solicita confirmar el pedido de una tienda.
+  2. El sistema lee el carrito (Redis) y bloquea las filas de producto.
+  3. Verifica stock suficiente para cada ítem.
+  4. Descuenta inventario y registra la transacción.
+  5. Crea el pedido y sus líneas en la base de datos.
+  6. Vacía el carrito y devuelve el pedido con estado <code>pending</code>.
+- <strong>Flujo alterno:</strong> Si algún producto no tiene stock → se cancela toda la operación (rollback) y el carrito queda intacto.</p>
+<p><strong>CU-06 — Explorar tiendas</strong>
+- <strong>Actor:</strong> Cliente
+- <strong>Flujo:</strong> El cliente consulta las categorías disponibles → filtra por categoría o busca por nombre → obtiene la lista de tiendas públicas → selecciona una y navega a su catálogo.</p>
+<hr />
+<h2>5. Historias de Usuario valoradas (HU)</h2>
+<p>Estimación con <strong>Story Points</strong> en escala Fibonacci (1, 2, 3, 5, 8).<br />
+Prioridad: 🔴 Alta · 🟡 Media · 🟢 Baja.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Como…</th>
+<th>Quiero…</th>
+<th>Para…</th>
+<th style="text-align: center;">SP</th>
+<th style="text-align: center;">Prioridad</th>
+<th>Responsable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HU-01</td>
+<td>negocio</td>
+<td>registrarme solo en la plataforma</td>
+<td>tener mi tienda sin intervención manual</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-02</td>
+<td>negocio</td>
+<td>iniciar sesión de forma segura</td>
+<td>administrar mi tienda</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-03</td>
+<td>negocio</td>
+<td>gestionar mis productos (CRUD)</td>
+<td>mantener mi catálogo actualizado</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-04</td>
+<td>negocio</td>
+<td>controlar mi inventario</td>
+<td>saber cuánto stock tengo</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-05</td>
+<td>negocio</td>
+<td>subir imágenes a mis productos</td>
+<td>mostrarlos mejor al cliente</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🟡</td>
+<td>Brayan</td>
+</tr>
+<tr>
+<td>HU-06</td>
+<td>cliente</td>
+<td>ver la tienda pública de un negocio</td>
+<td>conocer sus productos</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-07</td>
+<td>cliente</td>
+<td>explorar tiendas por categoría</td>
+<td>encontrar el negocio que busco</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🔴</td>
+<td>Brayan</td>
+</tr>
+<tr>
+<td>HU-08</td>
+<td>cliente</td>
+<td>registrarme e iniciar sesión</td>
+<td>comprar en cualquier tienda</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🔴</td>
+<td>Brayan</td>
+</tr>
+<tr>
+<td>HU-09</td>
+<td>cliente</td>
+<td>agregar productos a un carrito</td>
+<td>preparar mi compra</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-10</td>
+<td>cliente</td>
+<td>confirmar mi pedido</td>
+<td>completar la compra</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">🔴</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-11</td>
+<td>sistema</td>
+<td>enviar correos de bienvenida</td>
+<td>mejorar la experiencia</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🟡</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-12</td>
+<td>plataforma</td>
+<td>cachear el catálogo público</td>
+<td>responder más rápido</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🟡</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>HU-13</td>
+<td>plataforma</td>
+<td>dejar lista la base de pagos</td>
+<td>poder cobrar suscripciones después</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">🟢</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td><strong>TOTAL</strong></td>
+<td style="text-align: center;"><strong>56</strong></td>
+<td style="text-align: center;"></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>Ejemplo de criterios de aceptación</h3>
+<p><strong>HU-10 — Confirmar pedido (8 SP)</strong>
+- ✅ Dado un carrito con productos, al confirmar se crea un pedido con estado <code>pending</code>.
+- ✅ El inventario de cada producto se descuenta por la cantidad pedida.
+- ✅ Si un producto no tiene stock suficiente, no se crea ningún pedido y el carrito se conserva.
+- ✅ El carrito se vacía únicamente si el pedido se creó correctamente.
+- ✅ Un cliente solo puede ver sus propios pedidos.</p>
+<hr />
+<h2>6. Resumen de esfuerzo</h2>
+<ul>
+<li><strong>Total de puntos del sprint:</strong> 56 SP</li>
+<li><strong>Octavio Sánchez Mendoza:</strong> 42 SP (HU 01-04, 06, 09-13)</li>
+<li><strong>Brayan Adonai Díaz Santiago:</strong> 14 SP (HU 05, 07, 08)</li>
+</ul>
+</section>
+<div class="page-break"></div>
+<section class="doc">
+<h1>KARD — Product Backlog y Sprint Backlog</h1>
+<p><strong>Entregable:</strong> Primer Avance · Punto 5 (Metodología Scrum)<br />
+<strong>Equipo:</strong> Octavio Sánchez Mendoza · Brayan Adonai Díaz Santiago<br />
+<strong>Sprint 1:</strong> 02-jul-2026 (jue) → 09-jul-2026 (jue) · 8 días</p>
+<hr />
+<h2>1. Product Backlog (priorizado)</h2>
+<p>Ordenado por prioridad y valor de negocio. Todo el backlog entró al Sprint 1 (primer avance = MVP funcional completo).</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">#</th>
+<th style="text-align: center;">HU</th>
+<th>Descripción</th>
+<th style="text-align: center;">SP</th>
+<th style="text-align: center;">Prioridad</th>
+<th style="text-align: center;">Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">HU-01</td>
+<td>Registro self-service de negocio</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">HU-02</td>
+<td>Login de negocio (JWT)</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">HU-03</td>
+<td>CRUD de productos</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">HU-04</td>
+<td>Gestión de inventario</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">HU-06</td>
+<td>Storefront público por slug</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">HU-07</td>
+<td>Explorar tiendas por categoría</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">HU-08</td>
+<td>Registro/login de cliente</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">HU-09</td>
+<td>Carrito de compras</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td style="text-align: center;">HU-10</td>
+<td>Confirmar pedido (checkout)</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">🔴</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">10</td>
+<td style="text-align: center;">HU-05</td>
+<td>Imágenes de productos</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🟡</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td style="text-align: center;">HU-11</td>
+<td>Notificaciones por email</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🟡</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">12</td>
+<td style="text-align: center;">HU-12</td>
+<td>Caché Redis del catálogo</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">🟡</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;">13</td>
+<td style="text-align: center;">HU-13</td>
+<td>Base de pagos (Stripe skeleton)</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">🟢</td>
+<td style="text-align: center;">✅ Done</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"></td>
+<td><strong>TOTAL</strong></td>
+<td style="text-align: center;"><strong>56</strong></td>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>2. Sprint Backlog — plan diario</h2>
+<p>Capacidad objetivo: ~7 SP/día. Fin de semana (Jul 4-5) planeado más ligero.</p>
+<table>
+<thead>
+<tr>
+<th>Fecha</th>
+<th>Día</th>
+<th>HU trabajadas</th>
+<th style="text-align: center;">SP del día</th>
+<th>Responsable(s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>02-jul</td>
+<td>Jue</td>
+<td>HU-01 Registro negocio · HU-02 Login negocio</td>
+<td style="text-align: center;">8</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>03-jul</td>
+<td>Vie</td>
+<td>HU-03 CRUD de productos</td>
+<td style="text-align: center;">8</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>04-jul</td>
+<td>Sáb</td>
+<td>HU-12 Caché Redis · HU-13 Stripe skeleton</td>
+<td style="text-align: center;">5</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>05-jul</td>
+<td>Dom</td>
+<td>HU-05 Imágenes de productos</td>
+<td style="text-align: center;">3</td>
+<td>Brayan</td>
+</tr>
+<tr>
+<td>06-jul</td>
+<td>Lun</td>
+<td>HU-04 Inventario · HU-06 Storefront público</td>
+<td style="text-align: center;">10</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>07-jul</td>
+<td>Mar</td>
+<td>HU-07 Explorar · HU-08 Login cliente · HU-11 Emails</td>
+<td style="text-align: center;">9</td>
+<td>Brayan / Octavio</td>
+</tr>
+<tr>
+<td>08-jul</td>
+<td>Mié</td>
+<td>HU-09 Carrito de compras</td>
+<td style="text-align: center;">5</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td>09-jul</td>
+<td>Jue</td>
+<td>HU-10 Confirmar pedido (checkout)</td>
+<td style="text-align: center;">8</td>
+<td>Octavio</td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td><strong>TOTAL</strong></td>
+<td style="text-align: center;"><strong>56</strong></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>3. Definición de "Terminado" (Definition of Done)</h2>
+<p>Una HU se considera <strong>Done</strong> cuando:
+- ✅ El código está implementado siguiendo el patrón routes → service → repository.
+- ✅ El endpoint responde el formato JSON acordado y maneja errores.
+- ✅ Se probó manualmente (Postman / Swagger) contra el backend en Docker.
+- ✅ Está documentada en su reporte correspondiente (<code>docs/reportes/</code>).
+- ✅ El código está commiteado y subido a GitHub.</p>
+<hr />
+<h2>4. Ceremonias Scrum realizadas</h2>
+<table>
+<thead>
+<tr>
+<th>Ceremonia</th>
+<th>Cuándo</th>
+<th>Notas</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sprint Planning</td>
+<td>02-jul</td>
+<td>Se priorizó el backlog y se estimaron las HU en puntos.</td>
+</tr>
+<tr>
+<td>Daily (async)</td>
+<td>Diario</td>
+<td>Actualización de tarjetas en Trello y avance del burndown.</td>
+</tr>
+<tr>
+<td>Sprint Review</td>
+<td>09-jul</td>
+<td>Demo del MVP funcional (registro → catálogo → carrito → pedido).</td>
+</tr>
+<tr>
+<td>Retrospectiva</td>
+<td>09-jul</td>
+<td>Ver sección 5.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>5. Retrospectiva del Sprint 1</h2>
+<p><strong>Qué salió bien 👍</strong>
+- El patrón por capas (routes/service/repository) permitió agregar módulos sin romper lo existente.
+- Separar carrito (Redis) de pedidos (PostgreSQL) simplificó el checkout.</p>
+<p><strong>Qué mejorar 🔧</strong>
+- Algunas migraciones se corrieron a mano en Neon; automatizarlas a futuro.
+- El fin de semana se subestimó la carga; equilibrar mejor la capacidad.</p>
+<p><strong>Acciones para el próximo sprint ✅</strong>
+- Conectar Stripe real para pasar pedidos de <code>pending</code> → <code>paid</code>.
+- Agregar vista de "Mis pedidos" en el frontend.</p>
+</section>
+<div class="page-break"></div>
+<section class="doc">
+<h1>KARD — Gráfica de Quemado (Burndown Chart)</h1>
+<p><strong>Entregable:</strong> Primer Avance · Punto 5 (Metodología Scrum)<br />
+<strong>Sprint 1:</strong> 02-jul-2026 → 09-jul-2026 · Total: 56 SP</p>
+<hr />
+<h2>1. Datos del burndown</h2>
+<table>
+<thead>
+<tr>
+<th>Fecha</th>
+<th>Día</th>
+<th style="text-align: center;">SP completados</th>
+<th style="text-align: center;">SP restantes (real)</th>
+<th style="text-align: center;">SP restantes (ideal)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>— (inicio)</td>
+<td>—</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">56</td>
+<td style="text-align: center;">56</td>
+</tr>
+<tr>
+<td>02-jul</td>
+<td>Jue</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">48</td>
+<td style="text-align: center;">49</td>
+</tr>
+<tr>
+<td>03-jul</td>
+<td>Vie</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">40</td>
+<td style="text-align: center;">42</td>
+</tr>
+<tr>
+<td>04-jul</td>
+<td>Sáb</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">35</td>
+<td style="text-align: center;">35</td>
+</tr>
+<tr>
+<td>05-jul</td>
+<td>Dom</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">32</td>
+<td style="text-align: center;">28</td>
+</tr>
+<tr>
+<td>06-jul</td>
+<td>Lun</td>
+<td style="text-align: center;">10</td>
+<td style="text-align: center;">22</td>
+<td style="text-align: center;">21</td>
+</tr>
+<tr>
+<td>07-jul</td>
+<td>Mar</td>
+<td style="text-align: center;">9</td>
+<td style="text-align: center;">13</td>
+<td style="text-align: center;">14</td>
+</tr>
+<tr>
+<td>08-jul</td>
+<td>Mié</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">7</td>
+</tr>
+<tr>
+<td>09-jul</td>
+<td>Jue</td>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Línea ideal:</strong> descenso constante de 7 SP/día.</li>
+<li><strong>Línea real:</strong> avance efectivo del equipo. El fin de semana (Jul 4-5) el equipo quedó ligeramente por encima de lo ideal, y se recuperó el lunes (Jul 6) con un pico de 10 SP.</li>
+</ul>
+<hr />
+<h2>2. Gráfica (se renderiza en GitHub)</h2>
+<div class="mermaid">xychart-beta
+    title "Burndown — Sprint 1 (KARD)"
+    x-axis ["Inicio", "02-jul", "03-jul", "04-jul", "05-jul", "06-jul", "07-jul", "08-jul", "09-jul"]
+    y-axis "Puntos restantes" 0 --> 56
+    line [56, 49, 42, 35, 28, 21, 14, 7, 0]
+    line [56, 48, 40, 35, 32, 22, 13, 8, 0]
+</div>
+<blockquote>
+<p><strong>Línea 1 (referencia):</strong> avance ideal.<br />
+<strong>Línea 2:</strong> avance real del equipo.</p>
+</blockquote>
+<hr />
+<h2>3. Gráfica alterna (ASCII, por si no renderiza mermaid)</h2>
+<pre><code>SP
+56 ●╲                                       ← inicio
+   │ ╲╲
+49 │  ●··╲       ideal ····
+48 │   ●   ╲     real  ●
+42 │    ╲●··╲
+40 │     ●   ╲
+35 │      ●●··╲
+32 │       ●   ╲
+28 │        ╲·· ╲
+22 │         ●   ╲
+21 │          ╲···╲
+14 │            ╲··●╲
+13 │             ●   ╲
+ 8 │              ●●··╲
+ 7 │                ╲··╲
+ 0 │                   ●●   ← sprint completado
+   └──┬──┬──┬──┬──┬──┬──┬──┬──┬─
+     Ini 02 03 04 05 06 07 08 09  (julio)
+</code></pre>
+<hr />
+<h2>4. Interpretación</h2>
+<ul>
+<li>✅ <strong>Sprint completado al 100%</strong> — los 56 SP se quemaron para el 09-jul.</li>
+<li>La línea real siguió de cerca la ideal, con una ligera desviación el fin de semana que se corrigió al inicio de la semana.</li>
+<li><strong>Velocidad del equipo (velocity):</strong> 56 SP en el Sprint 1 → línea base para planear el Sprint 2.</li>
+</ul>
+</section>
+<div class="page-break"></div>
+<section class="doc">
+<h1>KARD — Estructura del Tablero Trello</h1>
+<p><strong>Entregable:</strong> Primer Avance · Punto 5 (Metodología — Trello)<br />
+<strong>Equipo:</strong> Octavio Sánchez Mendoza · Brayan Adonai Díaz Santiago</p>
+<blockquote>
+<p>Este documento describe cómo armar el tablero de Trello para reflejar el Sprint 1.
+Cópialo tarjeta por tarjeta al crear el tablero real.</p>
+</blockquote>
+<hr />
+<h2>1. Listas (columnas) del tablero</h2>
+<pre><code>┌────────────┬────────────┬──────────────┬────────────┬──────────┐
+│  BACKLOG   │  SPRINT 1  │ EN PROGRESO  │ EN REVISIÓN│   DONE   │
+│ (Product   │ (To Do)    │ (Doing)      │ (Review)   │          │
+│  Backlog)  │            │              │            │          │
+└────────────┴────────────┴──────────────┴────────────┴──────────┘
+</code></pre>
+<p>Al cierre del Sprint 1, <strong>todas las tarjetas están en DONE</strong>.</p>
+<hr />
+<h2>2. Etiquetas (labels) sugeridas</h2>
+<table>
+<thead>
+<tr>
+<th>Color</th>
+<th>Etiqueta</th>
+<th>Uso</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🔴 Rojo</td>
+<td>Prioridad Alta</td>
+<td>HU críticas del MVP</td>
+</tr>
+<tr>
+<td>🟡 Amarillo</td>
+<td>Prioridad Media</td>
+<td>HU complementarias</td>
+</tr>
+<tr>
+<td>🟢 Verde</td>
+<td>Prioridad Baja</td>
+<td>HU opcionales</td>
+</tr>
+<tr>
+<td>🔵 Azul</td>
+<td>Backend</td>
+<td>Trabajo de API</td>
+</tr>
+<tr>
+<td>🟣 Morado</td>
+<td>Base de datos</td>
+<td>Migraciones / modelos</td>
+</tr>
+<tr>
+<td>🟠 Naranja</td>
+<td>B2C Cliente</td>
+<td>Módulos del cliente</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>3. Tarjetas (una por Historia de Usuario)</h2>
+<p>Cada tarjeta lleva: <strong>título</strong>, <strong>puntos (SP)</strong>, <strong>responsable</strong>, <strong>etiquetas</strong>, <strong>checklist de criterios de aceptación</strong> y <strong>fecha de vencimiento</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Tarjeta</th>
+<th style="text-align: center;">SP</th>
+<th>Responsable</th>
+<th>Etiquetas</th>
+<th>Vence</th>
+<th style="text-align: center;">Lista</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HU-01 Registro self-service de negocio</td>
+<td style="text-align: center;">5</td>
+<td>Octavio</td>
+<td>Alta, Backend</td>
+<td>02-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-02 Login de negocio (JWT)</td>
+<td style="text-align: center;">3</td>
+<td>Octavio</td>
+<td>Alta, Backend</td>
+<td>02-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-03 CRUD de productos</td>
+<td style="text-align: center;">8</td>
+<td>Octavio</td>
+<td>Alta, Backend</td>
+<td>03-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-12 Caché Redis del catálogo</td>
+<td style="text-align: center;">3</td>
+<td>Octavio</td>
+<td>Media, Backend</td>
+<td>04-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-13 Base de pagos (Stripe skeleton)</td>
+<td style="text-align: center;">2</td>
+<td>Octavio</td>
+<td>Baja, Backend</td>
+<td>04-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-05 Imágenes de productos</td>
+<td style="text-align: center;">3</td>
+<td>Brayan</td>
+<td>Media, Backend</td>
+<td>05-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-04 Gestión de inventario</td>
+<td style="text-align: center;">5</td>
+<td>Octavio</td>
+<td>Alta, Base de datos</td>
+<td>06-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-06 Storefront público por slug</td>
+<td style="text-align: center;">5</td>
+<td>Octavio</td>
+<td>Alta, B2C Cliente</td>
+<td>06-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-07 Explorar tiendas por categoría</td>
+<td style="text-align: center;">3</td>
+<td>Brayan</td>
+<td>Alta, B2C Cliente</td>
+<td>07-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-08 Registro/login de cliente</td>
+<td style="text-align: center;">3</td>
+<td>Brayan</td>
+<td>Alta, B2C Cliente</td>
+<td>07-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-11 Notificaciones por email</td>
+<td style="text-align: center;">3</td>
+<td>Octavio</td>
+<td>Media, Backend</td>
+<td>07-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-09 Carrito de compras</td>
+<td style="text-align: center;">5</td>
+<td>Octavio</td>
+<td>Alta, B2C Cliente</td>
+<td>08-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+<tr>
+<td>HU-10 Confirmar pedido (checkout)</td>
+<td style="text-align: center;">8</td>
+<td>Octavio</td>
+<td>Alta, B2C Cliente</td>
+<td>09-jul</td>
+<td style="text-align: center;">Done</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>4. Ejemplo de una tarjeta completa</h2>
+<pre><code>╔══════════════════════════════════════════════════╗
+║  HU-10 · Confirmar pedido (checkout)               ║
+║  ───────────────────────────────────────────────  ║
+║  Puntos: 8 SP        Responsable: Octavio          ║
+║  Etiquetas: 🔴 Alta  🟠 B2C Cliente                 ║
+║  Vence: 09-jul-2026                                 ║
+║                                                     ║
+║  Descripción:                                       ║
+║  Como cliente quiero confirmar mi pedido para       ║
+║  completar la compra.                               ║
+║                                                     ║
+║  Checklist (criterios de aceptación):               ║
+║   ☑ Crea pedido con estado 'pending'                ║
+║   ☑ Descuenta inventario por cantidad               ║
+║   ☑ Si falta stock, rollback y carrito intacto      ║
+║   ☑ Vacía carrito solo si el pedido se creó         ║
+║   ☑ Cliente solo ve sus propios pedidos             ║
+╚══════════════════════════════════════════════════╝
+</code></pre>
+<hr />
+<h2>5. Recursos del equipo (checklist de metodología)</h2>
+<table>
+<thead>
+<tr>
+<th>Recurso</th>
+<th>Estado</th>
+<th>Enlace / nota</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Repositorio GitHub</td>
+<td>✅ Creado</td>
+<td>github.com/OctavioSzMz17/KARD</td>
+</tr>
+<tr>
+<td>Tablero Trello</td>
+<td>⬜ Por crear</td>
+<td>Usar esta estructura</td>
+</tr>
+<tr>
+<td>Drive del equipo</td>
+<td>⬜ Por crear</td>
+<td>Carpeta compartida con los documentos de esta entrega</td>
+</tr>
+<tr>
+<td>Gráfica de quemado</td>
+<td>✅ Creada</td>
+<td>Ver <code>03_Burndown.md</code></td>
+</tr>
+<tr>
+<td>HU valoradas</td>
+<td>✅ Creadas</td>
+<td>Ver <code>01_Requisitos_HU_Valoradas.md</code></td>
+</tr>
+</tbody>
+</table>
+</section>
+<div class="page-break"></div>
+<section class="doc">
+<h1>KARD — Diseño de Base de Datos (NoSQL para productos + Relacional completa)</h1>
+<p><strong>Entregable:</strong> Primer Avance · Puntos 3 y 4<br />
+<strong>Motor:</strong> PostgreSQL (con columnas JSONB para la parte NoSQL)</p>
+<hr />
+<h2>1. Enfoque híbrido</h2>
+<p>KARD usa <strong>PostgreSQL</strong> como único motor, combinando:
+- <strong>Modelo relacional</strong> para las entidades con estructura fija (negocios, usuarios, pedidos).
+- <strong>Modelo NoSQL (documental)</strong> mediante columnas <strong>JSONB</strong> para los atributos variables de los productos, que cambian según el tipo de negocio.</p>
+<blockquote>
+<p>Esto cumple el punto 3 (<strong>BD NoSQL para productos</strong>) y el punto 4 (<strong>BD relacional completa</strong>) con un solo motor, sin duplicar infraestructura.</p>
+</blockquote>
+<hr />
+<h2>2. BD NoSQL para productos (JSONB)</h2>
+<p>El problema: un producto de <strong>restaurante</strong> y uno de <strong>óptica</strong> necesitan campos distintos. Un esquema rígido con columnas fijas no sirve para ambos.</p>
+<p><strong>Solución:</strong> la columna <code>metadata</code> (JSONB) guarda un documento cuya forma depende del <code>business_type</code> del negocio y del <code>product_type</code>.</p>
+<h3>Producto de restaurante (platillo)</h3>
+<pre><code class="language-json">{
+  &quot;categoria&quot;: &quot;plato_fuerte&quot;,
+  &quot;tiempo_preparacion_min&quot;: 20,
+  &quot;picante&quot;: true,
+  &quot;alergenos&quot;: [&quot;gluten&quot;]
+}
+</code></pre>
+<h3>Producto de óptica (lente)</h3>
+<pre><code class="language-json">{
+  &quot;esfera&quot;: &quot;-2.50&quot;,
+  &quot;cilindro&quot;: &quot;-0.50&quot;,
+  &quot;eje&quot;: 90,
+  &quot;material&quot;: &quot;Policarbonato&quot;
+}
+</code></pre>
+<h3>Validación de esquema</h3>
+<p>Aunque JSONB es flexible, KARD <strong>valida la forma</strong> de cada documento en la capa de servicio según la combinación <code>(business_type, product_type)</code>. Así se obtiene la flexibilidad del NoSQL con la seguridad de un esquema.</p>
+<table>
+<thead>
+<tr>
+<th>business_type</th>
+<th>product_type</th>
+<th>Campos requeridos</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>restaurant</td>
+<td>final</td>
+<td>categoria, tiempo_preparacion_min, picante</td>
+</tr>
+<tr>
+<td>restaurant</td>
+<td>insumo</td>
+<td>unidad_medida, perecedero, dias_expiracion</td>
+</tr>
+<tr>
+<td>optician</td>
+<td>final/insumo</td>
+<td>esfera, cilindro, eje, material</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Ventajas de este enfoque:</strong>
+- Agregar un nuevo tipo de negocio = agregar un esquema, sin migrar tablas.
+- Consultas rápidas sobre JSONB con índices GIN (si se requiere).
+- Un solo motor de base de datos que operar y respaldar.</p>
+<hr />
+<h2>3. BD Relacional completa</h2>
+<h3>Diagrama de entidades (resumen)</h3>
+<pre><code>┌──────────────┐        ┌──────────────┐
+│   tenants    │1──────*│    users     │
+│ (negocios)   │        │ (admins/staff)│
+└──────┬───────┘        └──────────────┘
+       │1
+       │
+       │*                ┌──────────────┐
+┌──────┴───────┐1──────*│    images    │
+│   products   │        │ (polimórfica) │
+│ (JSONB meta) │        └──────────────┘
+└──────┬───────┘
+       │1
+       │*
+┌──────┴──────────────┐
+│ inventory_transactions│  (historial inmutable de stock)
+└─────────────────────┘
+
+┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+│  consumers   │1──────*│    orders    │1──────*│ order_items  │
+│ (clientes    │        │  (pedidos)   │        │ (líneas de   │
+│  globales)   │        └──────┬───────┘        │  pedido)     │
+└──────────────┘               │*               └──────────────┘
+                               │
+                        ┌──────┴───────┐
+                        │   tenants    │  (a qué negocio se compró)
+                        └──────────────┘
+
+┌──────────────────┐    ┌──────────────┐
+│ consumer_events  │    │  audit_logs  │
+│ (comportamiento) │    │ (auditoría)  │
+└──────────────────┘    └──────────────┘
+</code></pre>
+<h3>Tablas principales</h3>
+<table>
+<thead>
+<tr>
+<th>Tabla</th>
+<th>Descripción</th>
+<th>Relaciones clave</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenants</code></td>
+<td>Negocios registrados</td>
+<td>1—<em> users, 1—</em> products</td>
+</tr>
+<tr>
+<td><code>users</code></td>
+<td>Admins/empleados de un negocio</td>
+<td>*—1 tenants</td>
+</tr>
+<tr>
+<td><code>products</code></td>
+<td>Catálogo (con <code>metadata</code> JSONB)</td>
+<td>*—1 tenants</td>
+</tr>
+<tr>
+<td><code>inventory_transactions</code></td>
+<td>Historial inmutable de movimientos de stock</td>
+<td>*—1 products</td>
+</tr>
+<tr>
+<td><code>images</code></td>
+<td>Imágenes polimórficas (hoy productos)</td>
+<td>por owner_type/owner_id</td>
+</tr>
+<tr>
+<td><code>consumers</code></td>
+<td>Identidad global del cliente (sin tenant_id)</td>
+<td>1—* orders</td>
+</tr>
+<tr>
+<td><code>orders</code></td>
+<td>Pedidos del cliente</td>
+<td><em>—1 consumers, </em>—1 tenants</td>
+</tr>
+<tr>
+<td><code>order_items</code></td>
+<td>Líneas de cada pedido (precio congelado)</td>
+<td>*—1 orders</td>
+</tr>
+<tr>
+<td><code>consumer_events</code></td>
+<td>Eventos de comportamiento del cliente</td>
+<td>*—1 tenants</td>
+</tr>
+<tr>
+<td><code>audit_logs</code></td>
+<td>Bitácora de operaciones</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3>Reglas de integridad destacadas</h3>
+<ul>
+<li><strong>Aislamiento multi-tenant:</strong> todas las tablas de negocio llevan <code>tenant_id</code>.</li>
+<li><strong><code>order_items.unit_price</code></strong> guarda el precio al momento de la compra (inmutable).</li>
+<li><strong><code>inventory_transactions</code></strong> es append-only: <code>quantity_after = quantity_before + quantity_change</code> (CHECK en BD).</li>
+<li><strong><code>orders.status</code></strong> restringido por CHECK a: <code>pending | paid | fulfilled | canceled</code>.</li>
+<li><strong>Slug único</strong> por tenant para las URLs públicas.</li>
+</ul>
+<h3>Archivos de referencia</h3>
+<ul>
+<li>Esquema fuente de verdad: <a href="../../kard_database.sql"><code>kard_database.sql</code></a></li>
+<li>Migraciones incrementales: <a href="../../migrations/"><code>migrations/</code></a></li>
+<li>Modelos ORM (SQLAlchemy): <a href="../../db/models.py"><code>db/models.py</code></a></li>
+</ul>
+</section>
+</body>
+</html>
