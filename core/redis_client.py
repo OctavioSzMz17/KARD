@@ -1,17 +1,24 @@
 """
 Lazy, fault-tolerant Redis client.
 
-Used for ephemeral auth state: failed-login counters / account
-lockouts (Rules.md section 1.8) and, later, the JWT logout
-blacklist (Rules.md section 1.7).
+Used for ephemeral auth state — failed-login counters / account lockouts
+(Rules.md section 1.8) and the JWT logout blacklist (Rules.md section 1.7) —
+for the storefront catalog cache, and for the consumer cart.
 
-Connecting is best-effort: if Redis is unreachable, the affected
-features degrade gracefully (no lockout / no blacklist) and a
-warning is logged, rather than the whole API going down because a
-side-feature's cache is offline.
+Connecting is best-effort: if Redis is unreachable, most callers degrade
+gracefully (no lockout / no blacklist / cache miss) and a warning is logged,
+rather than the whole API going down because a side-feature's cache is
+offline. The cart is the exception: it has no DB fallback and returns 503
+(see `cart/service.py`), which makes a failed connection here user-visible.
+
+Because of that, an unreachable Redis is treated as *temporary*: after a
+failure we back off for RETRY_COOLDOWN_SECONDS and then try again, instead
+of latching off for the lifetime of the process. A one-second network hiccup
+must not disable the cart until the next redeploy.
 """
 
 import logging
+import time
 from typing import Optional
 
 import redis
@@ -20,32 +27,57 @@ from core.config import settings
 
 logger = logging.getLogger("kard.redis")
 
+# Generous enough for a managed Redis across a cloud network (the previous
+# 1s tripped on ordinary cold-start latency), short enough that a request
+# is not left hanging when Redis is genuinely down.
+CONNECT_TIMEOUT_SECONDS = 5
+SOCKET_TIMEOUT_SECONDS = 5
+
+# How long to keep serving None before retrying a failed connection. Without
+# this, every request would pay the full connect timeout while Redis is down.
+RETRY_COOLDOWN_SECONDS = 30.0
+
 _client: Optional[redis.Redis] = None
-_unavailable = False
+_retry_after: float = 0.0
 
 
 def get_redis() -> Optional[redis.Redis]:
-    """Return a shared Redis client, or None if Redis cannot be reached."""
-    global _client, _unavailable
+    """
+    Return a shared Redis client, or None if Redis cannot be reached.
 
-    if _unavailable:
+    A None result is not permanent: the next call after the cooldown
+    window retries the connection.
+    """
+    global _client, _retry_after
+
+    if _client is not None:
+        return _client
+
+    if time.monotonic() < _retry_after:
         return None
 
-    if _client is None:
-        try:
-            client = redis.Redis.from_url(
-                settings.REDIS_URL,
-                decode_responses=True,
-                socket_connect_timeout=1,
-                socket_timeout=1,
-            )
-            client.ping()
-            _client = client
-        except Exception as exc:  # pragma: no cover - depends on infra availability
-            logger.warning("Redis unavailable at %s (%s); continuing without it", settings.REDIS_URL, exc)
-            _unavailable = True
-            return None
+    try:
+        client = redis.Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=CONNECT_TIMEOUT_SECONDS,
+            socket_timeout=SOCKET_TIMEOUT_SECONDS,
+            retry_on_timeout=True,
+            health_check_interval=30,
+        )
+        client.ping()
+    except Exception as exc:  # pragma: no cover - depends on infra availability
+        logger.warning(
+            "Redis unavailable at %s (%s); retrying in %.0fs",
+            settings.REDIS_URL,
+            exc,
+            RETRY_COOLDOWN_SECONDS,
+        )
+        _retry_after = time.monotonic() + RETRY_COOLDOWN_SECONDS
+        return None
 
+    logger.info("Redis connection established")
+    _client = client
     return _client
 
 

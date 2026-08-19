@@ -6,12 +6,20 @@ GET   /api/v1/orders              → list my orders (paginated)
 GET   /api/v1/orders/{order_id}   → order detail
 """
 
+from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from core.dependencies import CurrentConsumer, get_current_consumer
+from core.dependencies import CurrentConsumer, get_current_consumer, get_tenant_id
 from db.database import get_db
-from orders.models import CreateOrderRequest, OrderListResponse, OrderResponse
+from orders.models import (
+    CreateOrderRequest,
+    OrderListResponse,
+    OrderResponse,
+    SalesReportResponse,
+)
 from orders.service import OrderService
 
 router = APIRouter()
@@ -54,6 +62,34 @@ def list_orders(
     db: Session = Depends(get_db),
 ) -> OrderListResponse:
     return OrderService(db).list_orders(consumer.consumer_id, page, page_size)
+
+
+# OJO: esta ruta va ANTES de "/{order_id}". Si se declara después, el path
+# param la captura y "/sales" se interpreta como un order_id.
+@router.get(
+    "/business/sales",
+    response_model=SalesReportResponse,
+    summary="Sales report for the authenticated business (B2B)",
+)
+def list_business_sales(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    date_from: Optional[datetime] = Query(default=None, description="Inclusive, ISO-8601"),
+    date_to: Optional[datetime] = Query(default=None, description="Exclusive, ISO-8601"),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    search: Optional[str] = Query(default=None, description="Folio, nombre o correo del cliente"),
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+) -> SalesReportResponse:
+    """
+    Ventas del negocio autenticado, con los filtros del reporte.
+
+    El tenant sale del JWT, nunca de la query — un negocio no puede pedir
+    las ventas de otro (Rules.md section 2.6).
+    """
+    return OrderService(db).list_sales(
+        tenant_id, page, page_size, date_from, date_to, status_filter, search
+    )
 
 
 @router.get(

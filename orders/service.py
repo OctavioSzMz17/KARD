@@ -28,7 +28,15 @@ from core.exceptions import (
 )
 from core.redis_client import get_redis
 from db.models import InventoryTransaction, Order, OrderItem, Product, ProductRecipe
-from orders.models import OrderItemResponse, OrderListResponse, OrderResponse, SkippedItemResponse
+from orders.models import (
+    OrderItemResponse,
+    OrderListResponse,
+    OrderResponse,
+    SaleResponse,
+    SalesReportResponse,
+    SalesSummary,
+    SkippedItemResponse,
+)
 from orders.repository import OrderRepository
 from storefront.repository import StorefrontRepository
 from utils.helpers import generate_id
@@ -279,6 +287,60 @@ class OrderService:
         if order is None:
             raise OrderNotFoundError(order_id)
         return self._order_to_response(order)
+
+    def list_sales(
+        self,
+        tenant_id: str,
+        page: int,
+        page_size: int,
+        date_from=None,
+        date_to=None,
+        status: str | None = None,
+        search: str | None = None,
+    ) -> SalesReportResponse:
+        """
+        Ventas del negocio para el reporte del dashboard.
+
+        El resumen se calcula sobre todo el conjunto filtrado (no sobre la
+        página), porque el reporte descargado debe cuadrar aunque el usuario
+        esté viendo la página 1 de 8.
+        """
+        rows, total = self.repo.list_by_tenant(
+            tenant_id, page, page_size, date_from, date_to, status, search
+        )
+        summary = self.repo.summarize_by_tenant(tenant_id, date_from, date_to, status, search)
+
+        return SalesReportResponse(
+            items=[self._sale_to_response(order, consumer) for order, consumer in rows],
+            summary=SalesSummary(**summary),
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    @staticmethod
+    def _sale_to_response(order: Order, consumer) -> SaleResponse:
+        items = [
+            OrderItemResponse(
+                product_id=item.product_id,
+                product_name=item.product_name,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                subtotal=item.subtotal,
+            )
+            for item in order.items
+        ]
+        return SaleResponse(
+            order_id=order.id,
+            status=order.status,
+            total=order.total,
+            item_count=sum(i.quantity for i in items),
+            # El consumer puede no tener nombre cargado; el correo siempre está.
+            customer_name=(consumer.name or "").strip() or consumer.email,
+            customer_email=consumer.email,
+            items=items,
+            created_at=order.created_at,
+        )
 
     def list_orders(self, consumer_id: str, page: int, page_size: int) -> OrderListResponse:
         orders, total = self.repo.list_by_consumer(consumer_id, page, page_size)

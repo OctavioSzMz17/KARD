@@ -1,9 +1,13 @@
 """Data-access layer for the orders module."""
 
+from datetime import datetime
+from decimal import Decimal
 from typing import Optional
+
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from db.models import Order
+from db.models import Consumer, Order, OrderItem
 
 
 class OrderRepository:
@@ -39,3 +43,114 @@ class OrderRepository:
             .all()
         )
         return items, total
+
+    # ── Vista del negocio (ventas) ────────────────────────────────────
+
+    def _sales_query(
+        self,
+        tenant_id: str,
+        date_from: Optional[datetime],
+        date_to: Optional[datetime],
+        status: Optional[str],
+        search: Optional[str],
+    ):
+        """
+        Base query for a tenant's sales, with the report filters applied.
+
+        The tenant_id filter is not optional — it is what keeps one business
+        from reading another's sales (Rules.md section 2.6).
+        """
+        q = (
+            self.db.query(Order)
+            .join(Consumer, Consumer.id == Order.consumer_id)
+            .filter(Order.tenant_id == tenant_id)
+        )
+
+        if date_from is not None:
+            q = q.filter(Order.created_at >= date_from)
+        if date_to is not None:
+            q = q.filter(Order.created_at < date_to)
+        if status:
+            q = q.filter(Order.status == status)
+        if search:
+            like = f"%{search.strip()}%"
+            q = q.filter(
+                or_(
+                    Order.id.ilike(like),
+                    Consumer.name.ilike(like),
+                    Consumer.email.ilike(like),
+                )
+            )
+        return q
+
+    def list_by_tenant(
+        self,
+        tenant_id: str,
+        page: int,
+        page_size: int,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> tuple[list[tuple[Order, Consumer]], int]:
+        """Return `(order, consumer)` pairs for one page, newest first."""
+        q = self._sales_query(tenant_id, date_from, date_to, status, search)
+        total = q.count()
+        rows = (
+            q.options(joinedload(Order.items), joinedload(Order.tenant))
+            .add_entity(Consumer)
+            .order_by(Order.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return rows, total
+
+    def summarize_by_tenant(
+        self,
+        tenant_id: str,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> dict:
+        """
+        Totals over the *whole* filtered set, not just the current page —
+        a report footer that only added up the visible rows would be wrong.
+
+        Canceled orders are counted separately and excluded from revenue.
+        """
+        counts = self._sales_query(tenant_id, date_from, date_to, status, search)
+        order_count = counts.with_entities(func.count(Order.id)).scalar() or 0
+
+        canceled_count = (
+            self._sales_query(tenant_id, date_from, date_to, status, search)
+            .filter(Order.status == "canceled")
+            .with_entities(func.count(Order.id))
+            .scalar()
+            or 0
+        )
+
+        revenue = (
+            self._sales_query(tenant_id, date_from, date_to, status, search)
+            .filter(Order.status != "canceled")
+            .with_entities(func.coalesce(func.sum(Order.total), 0))
+            .scalar()
+            or 0
+        )
+
+        units = (
+            self._sales_query(tenant_id, date_from, date_to, status, search)
+            .filter(Order.status != "canceled")
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .with_entities(func.coalesce(func.sum(OrderItem.quantity), 0))
+            .scalar()
+            or 0
+        )
+
+        return {
+            "order_count": int(order_count or 0),
+            "canceled_count": int(canceled_count or 0),
+            "revenue": Decimal(revenue),
+            "units": int(units),
+        }
