@@ -27,7 +27,7 @@ from core.exceptions import (
     StorefrontNotFoundError,
 )
 from core.redis_client import get_redis
-from db.models import InventoryTransaction, Order, OrderItem, Product, ProductRecipe
+from db.models import InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant
 from orders.models import (
     OrderItemResponse,
     OrderListResponse,
@@ -310,7 +310,10 @@ class OrderService:
         )
         summary = self.repo.summarize_by_tenant(tenant_id, date_from, date_to, status, search)
 
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+
         return SalesReportResponse(
+            business_name=tenant.business_name if tenant else "",
             items=[self._sale_to_response(order, consumer) for order, consumer in rows],
             summary=SalesSummary(**summary),
             total=total,

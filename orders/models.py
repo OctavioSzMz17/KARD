@@ -81,6 +81,10 @@ class SalesSummary(BaseModel):
 
 
 class SalesReportResponse(BaseModel):
+    # Encabezado del reporte descargable: el front lo necesita aunque el
+    # filtro no devuelva ninguna venta, asi que no sale de los items.
+    business_name: str
+
     items: list[SaleResponse]
     summary: SalesSummary
     total: int
