@@ -27,7 +27,7 @@ from core.exceptions import (
     StorefrontNotFoundError,
 )
 from core.redis_client import get_redis
-from db.models import InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant
+from db.models import Consumer, InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant
 from orders.models import (
     OrderItemResponse,
     OrderListResponse,
@@ -320,6 +320,19 @@ class OrderService:
             page=page,
             page_size=page_size,
         )
+
+    def update_sale_status(self, tenant_id: str, order_id: str, new_status: str) -> SaleResponse:
+        """Cambia el estado de una venta del negocio autenticado."""
+        order = self.repo.get_by_id_for_tenant(order_id, tenant_id)
+        if order is None:
+            raise OrderNotFoundError("Order not found")
+
+        order.status = new_status
+        self.db.commit()
+        self.db.refresh(order)
+
+        consumer = self.db.query(Consumer).filter(Consumer.id == order.consumer_id).first()
+        return self._sale_to_response(order, consumer)
 
     @staticmethod
     def _sale_to_response(order: Order, consumer) -> SaleResponse:

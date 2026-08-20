@@ -18,7 +18,9 @@ from orders.models import (
     CreateOrderRequest,
     OrderListResponse,
     OrderResponse,
+    SaleResponse,
     SalesReportResponse,
+    UpdateSaleStatusRequest,
 )
 from orders.service import OrderService
 
@@ -90,6 +92,21 @@ def list_business_sales(
     return OrderService(db).list_sales(
         tenant_id, page, page_size, date_from, date_to, status_filter, search
     )
+
+
+@router.patch(
+    "/business/sales/{order_id}/status",
+    response_model=SaleResponse,
+    summary="Update the status of one of the business's sales (B2B)",
+)
+def update_sale_status(
+    order_id: str,
+    payload: UpdateSaleStatusRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+) -> SaleResponse:
+    """Un negocio solo puede mover pedidos propios; los ajenos dan 404."""
+    return OrderService(db).update_sale_status(tenant_id, order_id, payload.status)
 
 
 @router.get(

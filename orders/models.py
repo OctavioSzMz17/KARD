@@ -80,6 +80,18 @@ class SalesSummary(BaseModel):
     units: int
 
 
+class UpdateSaleStatusRequest(BaseModel):
+    """
+    Cambio de estado hecho por el negocio.
+
+    Se permite cualquier destino, incluido volver atras: el negocio necesita
+    poder corregir un estado marcado por error, y Literal ya impide que
+    llegue un valor inventado (422 automatico).
+    """
+
+    status: Literal["pending", "paid", "fulfilled", "canceled"]
+
+
 class SalesReportResponse(BaseModel):
     # Encabezado del reporte descargable: el front lo necesita aunque el
     # filtro no devuelva ninguna venta, asi que no sale de los items.

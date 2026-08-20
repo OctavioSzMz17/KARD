@@ -46,6 +46,19 @@ class OrderRepository:
 
     # ── Vista del negocio (ventas) ────────────────────────────────────
 
+    def get_by_id_for_tenant(self, order_id: str, tenant_id: str) -> Optional[Order]:
+        """
+        Fetch one of *this tenant's* orders. The tenant_id guard is what stops
+        a business from touching another business's order — returns None
+        (→ 404) rather than 403, same as the consumer-side guard.
+        """
+        return (
+            self.db.query(Order)
+            .options(joinedload(Order.items), joinedload(Order.tenant))
+            .filter(Order.id == order_id, Order.tenant_id == tenant_id)
+            .first()
+        )
+
     def _sales_query(
         self,
         tenant_id: str,
