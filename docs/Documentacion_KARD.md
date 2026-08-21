@@ -1,6 +1,8 @@
 # KARD — Documentación técnica
 
-**Versión del código:** commit `f7283ac` (main) · **Generado:** 2026-08-04
+**Integrantes:** Sánchez Mendoza Octavio · Díaz Santiago Brayan Adonai
+
+**Versión del código:** commit `73a1e75` (main) · **Generado:** 2026-08-21
 **Alcance:** backend completo. El frontend vive en otro repositorio.
 
 > Este documento describe **lo que hoy existe en el código**, verificado archivo por archivo.
@@ -183,7 +185,7 @@ cualquier campo no declarado.
 
 ---
 
-## 7. Catálogo de endpoints (41 + health)
+## 7. Catálogo de endpoints (43 + health)
 
 Prefijo general `/api/v1`, salvo el storefront público que usa `/s`.
 🔒 = requiere JWT de negocio · 👤 = requiere JWT de consumer · 🌐 = público
@@ -295,6 +297,29 @@ El carrito es **un carrito por tienda**: la clave en Redis es `cart:{consumer_id
 | GET | `` | Mis pedidos en todas las tiendas, paginado |
 | GET | `/{order_id}` | Detalle; pedidos ajenos devuelven 404 |
 
+### Ventas del negocio — `/api/v1/orders/business` 🔒
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/sales` | Ventas del tenant con filtros y resumen agregado |
+| PATCH | `/sales/{order_id}/status` | Cambia el estado de una venta propia |
+
+La cara B2B de los mismos pedidos. Hasta esta versión **todas** las rutas de `/orders` exigían JWT de
+consumer, así que el negocio no tenía forma de consultar sus propias ventas pese a que la tabla
+`orders` ya guardaba `tenant_id`.
+
+- **Filtros:** `date_from`, `date_to` (exclusivo), `status`, `search` (folio, nombre o correo del
+  cliente), `page`, `page_size` (máx. 100).
+- **Resumen:** `order_count`, `canceled_count`, `revenue` y `units` se calculan sobre **todo el
+  conjunto filtrado**, no sobre la página devuelta — un total que sumara solo las filas visibles
+  sería incorrecto al pedir la página 1 de 8. Los cancelados se cuentan aparte y no suman al ingreso.
+- **Aislamiento:** el `tenant_id` sale del JWT, nunca de la query.
+- **Orden de rutas:** `/business/sales` se declara **antes** que `/{order_id}`; al revés, el parámetro
+  de ruta captura `business` y lo interpreta como identificador de pedido.
+
+El `PATCH` acepta los cuatro estados del modelo, incluido retroceder, porque el negocio necesita poder
+corregir un estado marcado por error. Antes de existir, los pedidos nacían en `pending` y nada podía
+moverlos.
+
 ### Salud
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -369,8 +394,21 @@ cliente sin carrito y sin pedido.
 | Blacklist de logout | `auth:blacklist:{token}` | vida del token | Sin revocación, sigue operando |
 
 El cliente ([core/redis_client.py](../core/redis_client.py)) es **lazy y tolerante a fallos**: si no puede
-conectar, loguea un warning, marca el servicio como no disponible y la API sigue funcionando. La única
-excepción deliberada es el carrito.
+conectar, loguea un warning y la API sigue funcionando. La única excepción deliberada es el carrito.
+
+**Caída tratada como temporal.** Un fallo de conexión no apaga el cliente para siempre: tras el fallo se
+espera un enfriamiento de 30 s y se vuelve a intentar. La versión anterior marcaba el servicio como no
+disponible de forma permanente para toda la vida del proceso, de modo que un hipo de red de un segundo
+dejaba el carrito caído hasta el siguiente redeploy, aunque Redis volviera enseguida. El enfriamiento
+evita además que cada petición pague el timeout completo mientras Redis está caído: solo una lo hace
+cada 30 s. Los timeouts de conexión y socket son de **5 s** — el segundo original se quedaba corto
+contra un Redis gestionado en la nube.
+
+> ⚠️ **En despliegue, `REDIS_URL` debe apuntar a un servicio real.** El valor de desarrollo
+> `redis://redis:6379` es el nombre del servicio de `docker-compose` y solo resuelve dentro de la red de
+> Docker en la máquina local. Publicado en un PaaS, ese host no existe: la API arranca bien, el catálogo
+> y el login siguen operando, y **solo el carrito devuelve 503** — una firma engañosa que parece un bug
+> del carrito cuando en realidad es un servicio de infraestructura ausente. Ver §13.
 
 ---
 
@@ -417,6 +455,21 @@ Todo se lee vía [core/config.py](../core/config.py). **Nada está hardcodeado**
 | `ENVIRONMENT` / `LOG_LEVEL` | Entorno y verbosidad |
 | `PORT_BACKEND` / `PORT_DB` / `PORT_REDIS` | Mapeo de puertos al host |
 
+### Diferencias entre desarrollo y despliegue
+
+El archivo `.env` está en el `.dockerignore`, así que **nunca entra a la imagen**. En un despliegue las
+variables del proveedor son la única fuente, y además `pydantic-settings` les da prioridad sobre el
+archivo. Tres valores no se pueden copiar tal cual desde el `.env` de desarrollo:
+
+| Variable | Desarrollo | Despliegue |
+|---|---|---|
+| `REDIS_URL` | `redis://redis:6379` (servicio de compose) | Cadena de conexión interna de un Redis gestionado, en la misma región que la API |
+| `CORS_ORIGINS` | `http://localhost:3000` | Origen público del frontend, **sin barra final** — la comparación es literal y `https://app.com/` no coincide con `https://app.com` |
+| `APP_URL` | `http://localhost:3000` | Origen público del frontend; es la base de los links de los correos |
+
+`CORS_ORIGINS` admite varios orígenes separados por coma, así que puede convivir el de producción con
+`localhost` para desarrollo.
+
 ---
 
 ## 14. Cómo levantar el proyecto
@@ -461,28 +514,76 @@ app; conectarlo a un runtime MCP es un paso posterior.
 
 ---
 
-## 16. Estado del proyecto
+## 16. Reporte de ventas del negocio
+
+La cara visible de `/api/v1/orders/business/sales` (§7) es la vista **Ventas** del panel, en el
+frontend. Se documenta aquí porque el contrato que consume nació con ella.
+
+### Qué ofrece la vista
+
+Filtros por atajo de mes, rango de fechas libre, estado y búsqueda; indicadores de ingreso, pedidos,
+artículos, ticket promedio y cancelados; tabla paginada con el estado editable en línea; y dos
+descargas. El atajo de mes y el rango libre se invalidan mutuamente para que no queden filtros
+contradictorios en pantalla.
+
+### Las dos descargas
+
+| Formato | Contenido | Para qué |
+|---|---|---|
+| **CSV** | Una fila por venta, con BOM para que Excel respete los acentos | Desglose transaccional: filtrar, sumar, cruzar con otras fuentes |
+| **PDF** | Resumen ejecutivo de una sola hoja, con gráficas | Lectura y entrega |
+
+Ambas se arman sobre el **conjunto filtrado completo**, no sobre la página visible. Como el endpoint
+topa `page_size` en 100, el cliente junta páginas de 100 hasta completar el total; pedir las 2000 de un
+tirón devuelve `422`. El tope se dejó intacto a propósito: existe para que una consulta abierta no tumbe
+al servidor, y el reporte es justo el caso que más lo tienta. El export se corta a 2000 filas y el
+documento avisa cuando recortó.
+
+### Decisiones del PDF
+
+- **Impresión del navegador, no una librería.** El reporte se arma como HTML autocontenido, se abre en
+  ventana nueva y se manda al diálogo de impresión, donde el usuario elige «Guardar como PDF». Evita
+  sumar una dependencia de generación de PDF al bundle de la aplicación.
+- **Resumen, no desglose.** El PDF no lista venta por venta: un documento que abre con doscientas filas
+  no se lee. Contiene encabezado con logo y criterios aplicados, ingreso del periodo como cifra
+  principal con cuatro métricas de apoyo, dona de composición del ingreso por producto, columnas de
+  ingreso por día —o por mes si el rango pasa de 45 días— y reparto de pedidos por estado. El detalle
+  vive en el CSV. Entra completo en una A4.
+- **Cinco productos con color propio.** El resto se pliega en un «Otros» gris: seis porciones se
+  distinguen entre sí, diez se vuelven un abanico donde el color deja de identificar nada.
+- **Paleta validada** contra papel blanco en banda de luminosidad, croma y separación bajo daltonismo.
+  Los colores que quedan por debajo de 3:1 de contraste se acompañan siempre de etiqueta visible.
+- **Los cancelados se excluyen** de ingreso, unidades y de todas las gráficas, igual que en el resumen
+  del backend; se reportan aparte para que el negocio los vea sin que inflen la cifra.
+
+---
+
+## 17. Estado del proyecto
 
 ### Implementado y funcionando ✅
 Autenticación B2B con roles y lockout · registro self-service de tenants · CRUD completo de catálogo
 con validación JSONB por giro · inventario con bitácora inmutable · recetas con descuento en cascada ·
 galería de imágenes · branding y perfil de tienda · storefront público con caché · descubrimiento de
-tiendas · identidad de clientes · carrito en Redis · checkout atómico con bloqueo de filas · emails
-transaccionales · auditoría · Docker Compose.
+tiendas · identidad de clientes · carrito en Redis · checkout atómico con bloqueo de filas ·
+**consulta de ventas del negocio con filtros y reporte descargable** · **cambio manual de estado de un
+pedido** · emails transaccionales · auditoría · Docker Compose.
 
 ### Pendiente ⚠️
 
 | # | Qué falta | Impacto |
 |---|---|---|
-| 1 | **Stripe / billing** — los 3 endpoints lanzan `NotImplementedError` | Los pedidos nunca pasan de `pending` a `paid`. Es el bloqueante real del MVP |
-| 2 | **Tests** — `tests/` existe pero todos los archivos están vacíos | Cero cobertura, pese a que Rules.md §15 exige pruebas de aislamiento cross-tenant |
-| 3 | **Dashboard de métricas** (US-009 a US-011) | No hay endpoints de agregados: totales, ventas por categoría, tendencias |
-| 4 | **`businessadmin/`** — módulo esqueleto | Sin impacto: sus funciones viven en `settings` y `products` |
-| 5 | **`utils/validators.py`** — solo un comentario | Sin impacto: la validación real vive en los `models.py` |
-| 6 | Verificar que la migración `003` esté aplicada en Neon | Si falta, los pedidos fallan en tiempo de ejecución |
+| 1 | **Stripe / billing** — los 3 endpoints lanzan `NotImplementedError` | El cobro real sigue sin existir. El `PATCH` de estado permite marcar un pedido como pagado a mano, así que ya no bloquea la demostración, pero no sustituye la pasarela |
+| 2 | **Cobertura de pruebas** — 14 pruebas en verde, ninguna sobre los endpoints nuevos de ventas | El aislamiento cross-tenant de `/business/sales` no está cubierto, pese a que Rules.md §15 lo exige |
+| 3 | **Dashboard de métricas** (US-009 a US-011) | Parcialmente cubierto: `/business/sales` ya entrega totales, ingreso y unidades del periodo. Faltan ventas por categoría y tendencias comparadas |
+| 4 | **Zona horaria en los filtros de fecha** | Los filtros mandan fechas sin zona y `created_at` se guarda en UTC: una venta de la tarde del último día del mes puede caer en el reporte del mes siguiente |
+| 5 | **`businessadmin/`** — módulo esqueleto | Sin impacto: sus funciones viven en `settings` y `products` |
+| 6 | **`utils/validators.py`** — solo un comentario | Sin impacto: la validación real vive en los `models.py` |
+| 7 | Verificar que la migración `003` esté aplicada en la base gestionada | Si falta, los pedidos fallan en tiempo de ejecución |
 
 ### Recomendación de siguiente paso
 
-Los **tests de aislamiento multi-tenant** son la prioridad técnica: protegen la promesa central del
-producto (que un negocio jamás vea datos de otro) y hoy no hay nada que impida que una regresión la
-rompa en silencio. Después de eso, Stripe para cerrar el ciclo comercial del MVP.
+Las **pruebas de aislamiento multi-tenant** siguen siendo la prioridad técnica: protegen la promesa
+central del producto (que un negocio jamás vea datos de otro) y `/business/sales` acaba de ampliar la
+superficie expuesta, porque devuelve el histórico comercial completo de un tenant. Después, corregir la
+zona horaria de los filtros —que hoy puede desplazar ventas de un periodo a otro en el reporte— y por
+último Stripe para cerrar el ciclo comercial.

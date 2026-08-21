@@ -1,0 +1,1248 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>KARD — Documentación técnica</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 10.5pt; line-height: 1.6; color: #1a1d24;
+    margin: 0 auto; max-width: 190mm; padding: 0 6mm; background: #fff;
+  }
+
+  /* Portada */
+  .cover { page-break-after: always; padding-top: 55mm; text-align: center; }
+  .cover-kicker {
+    font-size: 9pt; letter-spacing: .25em; text-transform: uppercase;
+    color: #6b7280; margin-bottom: 14mm;
+  }
+  .cover h1 {
+    font-size: 30pt; font-weight: 700; letter-spacing: -.02em;
+    margin: 0 0 6mm; border: none; padding: 0;
+  }
+  .cover-sub { font-size: 12pt; color: #4b5563; margin-bottom: 22mm; }
+  .cover-team {
+    display: inline-block; text-align: left;
+    border-top: 1px solid #d1d5db; border-bottom: 1px solid #d1d5db;
+    padding: 6mm 12mm; margin-bottom: 20mm;
+  }
+  .cover-team-label {
+    font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase;
+    color: #6b7280; margin-bottom: 3mm;
+  }
+  .cover-team ul { list-style: none; margin: 0; padding: 0; }
+  .cover-team li { font-size: 12.5pt; font-weight: 600; padding: 1.2mm 0; }
+  .cover-meta { font-size: 9.5pt; color: #6b7280; line-height: 1.9; }
+
+  /* Jerarquia */
+  h2 {
+    font-size: 16pt; font-weight: 700; letter-spacing: -.015em;
+    margin: 11mm 0 4mm; padding-bottom: 2.5mm;
+    border-bottom: 2px solid #1a1d24; page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11.5pt; font-weight: 600; color: #374151;
+    margin: 7mm 0 2.5mm; page-break-after: avoid;
+  }
+  h4 { font-size: 10.5pt; font-weight: 600; margin: 5mm 0 2mm; }
+  p { margin: 0 0 3.5mm; }
+  ul, ol { margin: 0 0 3.5mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  strong { font-weight: 600; }
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 8mm 0; }
+
+  /* Codigo */
+  code {
+    font-family: Consolas, "Courier New", monospace; font-size: 9pt;
+    background: #f3f4f6; padding: .1em .35em; border-radius: 2px;
+  }
+  pre {
+    background: #f8f9fb; border: 1px solid #e5e7eb; border-left: 3px solid #2a78d6;
+    border-radius: 3px; padding: 3mm 4mm; overflow-x: auto;
+    font-size: 8.8pt; line-height: 1.5; page-break-inside: avoid;
+    margin: 0 0 4mm;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* Tablas */
+  table {
+    width: 100%; border-collapse: collapse; font-size: 9pt;
+    margin: 0 0 5mm; page-break-inside: avoid;
+  }
+  th {
+    text-align: left; background: #f3f4f6; font-weight: 600; font-size: 8.5pt;
+    text-transform: uppercase; letter-spacing: .06em; color: #4b5563;
+    padding: 2mm 2.5mm; border-bottom: 1.5px solid #9ca3af;
+  }
+  td { padding: 2mm 2.5mm; border-bottom: 1px solid #eceef2; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafbfc; }
+
+  /* Citas y avisos */
+  blockquote {
+    margin: 0 0 4mm; padding: 2.5mm 4mm;
+    background: #fffbeb; border-left: 3px solid #d97706;
+    font-size: 9.5pt; color: #422006;
+  }
+  blockquote p { margin: 0 0 1.5mm; }
+  blockquote p:last-child { margin: 0; }
+
+  /* Referencias a archivos del repo (enlaces desactivados) */
+  .ref {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9pt; color: #1f5fa8;
+  }
+
+  img { max-width: 100%; height: auto; page-break-inside: avoid; }
+
+  @media print {
+    body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-kicker">Documentación técnica</div>
+  <h1>KARD</h1>
+  <div class="cover-sub">Plataforma SaaS multi-tenant para gestión de negocios</div>
+
+  <div class="cover-team">
+    <div class="cover-team-label">Integrantes</div>
+    <ul><li>Sánchez Mendoza Octavio</li><li>Díaz Santiago Brayan Adonai</li></ul>
+  </div>
+
+  <div class="cover-meta">
+    Backend · FastAPI · PostgreSQL · Redis<br>
+    Generado el 21/08/2026
+  </div>
+</div>
+
+<h2 id="1-que-es-kard">1. Qué es KARD</h2>
+<p>Plataforma <strong>SaaS marketplace B2B2C</strong> con tres actores:</p>
+<table>
+<thead>
+<tr>
+<th>Actor</th>
+<th>Qué hace</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Plataforma (KARD)</strong></td>
+<td>Administra tenants, cobra suscripciones</td>
+</tr>
+<tr>
+<td><strong>Negocios (tenants)</strong></td>
+<td>Restaurantes y ópticas: administran catálogo, inventario y su tienda pública</td>
+</tr>
+<tr>
+<td><strong>Clientes (consumers)</strong></td>
+<td>Descubren tiendas en el marketplace, arman carrito y compran</td>
+</tr>
+</tbody>
+</table>
+<pre><code>Negocio se registra → configura su tienda → administra productos e inventario
+                                                        ↓
+Cliente entra a KARD → explora categorías → elige tienda → carrito → pedido
+</code></pre>
+<p>El backend es una <strong>API REST JSON pura</strong>, sin plantillas ni vistas.</p>
+<hr />
+<h2 id="2-stack-tecnologico">2. Stack tecnológico</h2>
+<table>
+<thead>
+<tr>
+<th>Capa</th>
+<th>Tecnología</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lenguaje</td>
+<td>Python 3.11</td>
+</tr>
+<tr>
+<td>Framework</td>
+<td>FastAPI</td>
+</tr>
+<tr>
+<td>ORM</td>
+<td>SQLAlchemy 2.0</td>
+</tr>
+<tr>
+<td>Validación</td>
+<td>Pydantic v2 + jsonschema (para JSONB)</td>
+</tr>
+<tr>
+<td>Base de datos</td>
+<td>PostgreSQL 15 (Neon en la nube)</td>
+</tr>
+<tr>
+<td>Caché / carrito / lockouts</td>
+<td>Redis 7</td>
+</tr>
+<tr>
+<td>Autenticación</td>
+<td>JWT (python-jose) + bcrypt vía passlib (12 rounds)</td>
+</tr>
+<tr>
+<td>Emails</td>
+<td>Resend</td>
+</tr>
+<tr>
+<td>Pagos</td>
+<td>Stripe — <strong>skeleton, sin implementar</strong></td>
+</tr>
+<tr>
+<td>Contenedores</td>
+<td>Docker + Docker Compose</td>
+</tr>
+</tbody>
+</table>
+<p>Nota de dependencias: <code>bcrypt</code> está fijado a <code>&lt;4.1</code> porque el self-test de passlib 1.7.4 truena con versiones posteriores.</p>
+<hr />
+<h2 id="3-arquitectura-por-capas">3. Arquitectura por capas</h2>
+<p>Todos los módulos siguen el mismo patrón de cuatro archivos:</p>
+<pre><code>routes.py       →  Solo HTTP: parsea el request, delega al service, devuelve la respuesta.
+     ↓
+service.py      →  TODA la lógica: reglas, permisos, validaciones, transacciones.
+     ↓
+repository.py   →  Solo queries a la base. Sin reglas ni commits.
+     ↓
+models.py       →  Schemas Pydantic (request/response) del módulo.
+</code></pre>
+<p><strong>Dónde tocar cada cosa:</strong>
+- Cambiar comportamiento o reglas → <code>service.py</code> del módulo.
+- Agregar un endpoint → <code>routes.py</code> del módulo <strong>y</strong> registrarlo en <span class=\"ref\">main.py</span>.
+- Cambiar qué campos entran/salen → <code>models.py</code> del módulo.
+- Cambiar una consulta a la base → <code>repository.py</code> del módulo.</p>
+<hr />
+<h2 id="4-estructura-del-proyecto">4. Estructura del proyecto</h2>
+<pre><code>Kard/
+├── main.py                   ← entrypoint: routers + 22 exception handlers + /health
+├── docker-compose.yml        ← backend + postgres + redis
+├── kard_database.sql         ← schema fuente de verdad (tablas, enums, constraints)
+├── requirements.txt
+│
+├── core/                     ← INFRAESTRUCTURA COMPARTIDA
+│   ├── config.py             ← settings desde .env (singleton, sin valores hardcodeados)
+│   ├── security.py           ← hash bcrypt + crear/decodificar JWT
+│   ├── dependencies.py       ← get_current_user, get_current_consumer, require_role
+│   ├── redis_client.py       ← cliente Redis tolerante a fallos + invalidación de caché
+│   ├── tenant_config.py      ← helpers del JSONB `config` del tenant
+│   └── exceptions.py         ← todas las excepciones de dominio
+│
+├── db/
+│   ├── database.py           ← engine SQLAlchemy + get_db (sesión por request)
+│   └── models.py             ← 10 modelos ORM
+│
+│  ─── MÓDULOS B2B (negocio) ───
+├── auth/                     ← login, registro de tenant, creación de usuarios
+├── products/                 ← CRUD de catálogo + inventario + validación JSONB + mcp_tools
+├── recipes/                  ← recetas (BOM): platillo ↔ insumos
+├── images/                   ← galería de imágenes por producto
+├── settings/                 ← branding y perfil público del negocio
+├── saasadmin/                ← alta de tenants por el super admin
+├── billing/                  ← Stripe (SKELETON — sin lógica)
+├── businessadmin/            ← VACÍO (sus funciones quedaron en settings/products)
+│
+│  ─── MÓDULOS B2C (cliente) ───
+├── storefront/               ← tienda pública por slug
+├── explore/                  ← descubrimiento: categorías + listado de tiendas
+├── consumers/                ← identidad global del cliente
+├── cart/                     ← carrito (vive en Redis)
+├── orders/                   ← pedidos con descuento de stock en cascada
+│
+│  ─── TRANSVERSALES ───
+├── notifications/            ← emails transaccionales (Resend)
+├── audit_logging/            ← audit.py (operaciones) + logger.py (setup)
+├── utils/helpers.py          ← generate_id()
+│
+├── migrations/               ← 4 migraciones SQL, se corren a mano en Neon
+├── seeders/                  ← 3 scripts de datos demo
+├── tests/                    ← VACÍO (archivos placeholder de 1 línea)
+└── docs/                     ← esta documentación + reportes por paso
+</code></pre>
+<hr />
+<h2 id="5-los-dos-mundos-b2b-vs-b2c">5. Los dos mundos: B2B vs B2C</h2>
+<p>Es la distinción más importante del diseño. Son <strong>identidades separadas con tokens no intercambiables</strong>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>B2B (negocio)</th>
+<th>B2C (cliente)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tabla</td>
+<td><code>users</code></td>
+<td><code>consumers</code></td>
+</tr>
+<tr>
+<td>Login</td>
+<td><code>POST /api/v1/auth/login</code></td>
+<td><code>POST /api/v1/consumers/login</code></td>
+</tr>
+<tr>
+<td>Claims del JWT</td>
+<td><code>user_id</code>, <code>tenant_id</code>, <code>role</code>, <code>business_type</code></td>
+<td><code>consumer_id</code>, <code>type: "consumer"</code></td>
+</tr>
+<tr>
+<td>Dependency</td>
+<td><code>get_current_user</code></td>
+<td><code>get_current_consumer</code></td>
+</tr>
+<tr>
+<td>De dónde sale el <code>tenant_id</code></td>
+<td>del JWT verificado</td>
+<td>del <strong>slug</strong> en la URL</td>
+</tr>
+<tr>
+<td>Alcance</td>
+<td>un solo negocio</td>
+<td>toda la plataforma</td>
+</tr>
+</tbody>
+</table>
+<p>El discriminador <code>type: "consumer"</code> impide que un token B2B toque rutas B2C y viceversa
+(<span class=\"ref\">core/dependencies.py:182</span>).</p>
+<p>Además, <code>get_current_user</code> <strong>recarga el usuario desde la base en cada request</strong>: si una cuenta se
+desactiva, pierde acceso de inmediato aunque su token siga vigente.</p>
+<hr />
+<h2 id="6-modelo-de-datos-10-tablas">6. Modelo de datos (10 tablas)</h2>
+<p>Fuente de verdad: <span class=\"ref\">kard_database.sql</span>. Modelos ORM en <span class=\"ref\">db/models.py</span>.</p>
+<h3 id="enums-de-postgresql">Enums de PostgreSQL</h3>
+<ul>
+<li><code>business_type_enum</code>: <code>restaurant</code> · <code>optician</code> · <code>platform</code></li>
+<li><code>user_role_enum</code>: <code>saas_admin</code> · <code>business_admin</code> · <code>staff</code></li>
+<li><code>product_type_enum</code>: <code>insumo</code> · <code>final</code></li>
+<li><code>inventory_action_enum</code>: <code>sell</code> · <code>restock</code> · <code>adjust</code> · <code>create</code></li>
+</ul>
+<h3 id="tablas">Tablas</h3>
+<table>
+<thead>
+<tr>
+<th>Tabla</th>
+<th>Descripción</th>
+<th>Campos clave</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenants</code></td>
+<td>El negocio. Raíz del aislamiento multi-tenant.</td>
+<td><code>slug</code> (único), <code>is_public</code>, <code>config</code> (JSONB con branding/perfil), <code>business_type</code></td>
+</tr>
+<tr>
+<td><code>users</code></td>
+<td>Usuario B2B, siempre de un solo tenant.</td>
+<td><code>tenant_id</code>, <code>role</code>, <code>password_hash</code>, <code>is_active</code>, <code>last_login</code></td>
+</tr>
+<tr>
+<td><code>products</code></td>
+<td>Catálogo.</td>
+<td><code>product_type</code>, <code>price</code>, <code>inventory_count</code>, <code>low_stock_threshold</code>, <code>metadata</code> (JSONB), <code>is_deleted</code></td>
+</tr>
+<tr>
+<td><code>inventory_transactions</code></td>
+<td>Bitácora <strong>inmutable</strong> de cada movimiento de stock.</td>
+<td><code>action</code>, <code>quantity_before/change/after</code>, CHECK que valida la aritmética</td>
+</tr>
+<tr>
+<td><code>product_recipes</code></td>
+<td>Lista de materiales: un platillo consume N de cada insumo.</td>
+<td><code>final_product_id</code>, <code>insumo_product_id</code>, <code>quantity</code></td>
+</tr>
+<tr>
+<td><code>images</code></td>
+<td>Galería polimórfica (<code>owner_type</code>/<code>owner_id</code>). Hoy solo productos.</td>
+<td><code>sort_order</code> (0 = principal), <code>url</code>, <code>alt_text</code></td>
+</tr>
+<tr>
+<td><code>consumers</code></td>
+<td>Identidad B2C <strong>global</strong> — deliberadamente sin <code>tenant_id</code>.</td>
+<td><code>email</code> único, <code>hashed_password</code></td>
+</tr>
+<tr>
+<td><code>consumer_events</code></td>
+<td>Eventos de comportamiento; <code>consumer_id</code> nulo para anónimos.</td>
+<td><code>event_type</code>, <code>payload</code> (JSONB) — insumo de la IA de Fase 3</td>
+</tr>
+<tr>
+<td><code>orders</code></td>
+<td>Pedido de un consumer en un tenant.</td>
+<td><code>status</code>: <code>pending → paid → fulfilled \| canceled</code></td>
+</tr>
+<tr>
+<td><code>order_items</code></td>
+<td>Línea de pedido con <strong>precio congelado</strong> al momento de la compra.</td>
+<td><code>product_name</code>, <code>unit_price</code>, <code>subtotal</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="metadata-jsonb-por-tipo-de-negocio">Metadata JSONB por tipo de negocio</h3>
+<p>El esquema depende del par <strong>(business_type, product_type)</strong> y se valida con <code>jsonschema</code> en la capa
+de servicio (<span class=\"ref\">products/models.py:99</span>). <code>additionalProperties: false</code> rechaza
+cualquier campo no declarado.</p>
+<table>
+<thead>
+<tr>
+<th>Combinación</th>
+<th>Campos requeridos</th>
+<th>Opcionales</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>restaurant + <strong>final</strong> (platillo)</td>
+<td><code>categoria</code> (entrada/plato_fuerte/postre/bebida/guarnicion), <code>tiempo_preparacion_min</code>, <code>picante</code></td>
+<td><code>alergenos[]</code></td>
+</tr>
+<tr>
+<td>restaurant + <strong>insumo</strong></td>
+<td><code>unidad_medida</code>, <code>perecedero</code>, <code>dias_expiracion</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>optician + final/insumo</td>
+<td><code>esfera</code>, <code>cilindro</code>, <code>eje</code> (0–180), <code>material</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><code>business_type = platform</code> no admite productos: devuelve 422.</p>
+<hr />
+<h2 id="7-catalogo-de-endpoints-43-health">7. Catálogo de endpoints (43 + health)</h2>
+<p>Prefijo general <code>/api/v1</code>, salvo el storefront público que usa <code>/s</code>.
+🔒 = requiere JWT de negocio · 👤 = requiere JWT de consumer · 🌐 = público</p>
+<h3 id="autenticacion-apiv1auth">Autenticación — <code>/api/v1/auth</code></h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Acceso</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/register-tenant</code></td>
+<td>🌐</td>
+<td>Registro self-service: crea tenant + primer <code>business_admin</code> + slug y devuelve JWT listo (201)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/users</code></td>
+<td>🔒/🌐</td>
+<td>Crea usuario asignado a tenant + rol. Anónimo solo para el bootstrap único del <code>saas_admin</code> (201)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/login</code></td>
+<td>🌐</td>
+<td>Autenticación por email/password</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Reglas de creación de usuarios</strong> (<span class=\"ref\">auth/service.py:252</span>):
+un <code>business_admin</code> solo puede crear usuarios <strong>en su propio tenant</strong> (el <code>tenant_id</code> sale del JWT, nunca
+del body); un <code>saas_admin</code> puede elegir cualquier tenant activo; el primer <code>saas_admin</code> se crea con el
+bootstrap anónimo, que se cierra automáticamente en cuanto existe uno.</p>
+<p><strong>Protección de fuerza bruta:</strong> 5 intentos fallidos → bloqueo de 15 minutos, con contadores en Redis
+(<code>auth:failed:{email}</code>, <code>auth:lockout:{email}</code>). Cada intento se registra con IP en la auditoría.</p>
+<h3 id="catalogo-e-inventario-apiv1products">Catálogo e inventario — <code>/api/v1/products</code> 🔒</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td>``</td>
+<td>Crear producto; valida metadata JSONB según el giro (201)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td>``</td>
+<td>Listar con paginación (<code>page</code>, <code>page_size</code> ≤100), búsqueda por nombre y filtro <code>product_type</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/low-stock</code></td>
+<td>Productos bajo su umbral de alerta (widget del dashboard)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/{product_id}</code></td>
+<td>Detalle, con imágenes incluidas</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/{product_id}</code></td>
+<td>Actualización parcial. <strong>No</strong> permite tocar <code>inventory_count</code></td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/{product_id}</code></td>
+<td>Soft delete (<code>is_deleted = true</code>), nunca borrado físico (204)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/{product_id}/sell</code></td>
+<td>Descuenta stock, nunca por debajo de cero</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/{product_id}/restock</code></td>
+<td>Incrementa stock (llegó mercancía)</td>
+</tr>
+</tbody>
+</table>
+<p>El stock <strong>solo</strong> cambia por <code>/sell</code> y <code>/restock</code>, para que la bitácora <code>inventory_transactions</code> nunca
+quede inconsistente.</p>
+<h3 id="recetas-apiv1products">Recetas — <code>/api/v1/products</code> 🔒</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/{product_id}/recipe</code></td>
+<td>Ver ingredientes de un producto final</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/{product_id}/recipe/items</code></td>
+<td>Agregar ingrediente o actualizar su cantidad</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/{product_id}/recipe/items/{insumo_id}</code></td>
+<td>Quitar ingrediente</td>
+</tr>
+</tbody>
+</table>
+<p>Valida que el destino sea <code>final</code>, el ingrediente sea <code>insumo</code> y que no haya auto-referencia (400).</p>
+<h3 id="imagenes-apiv1products">Imágenes — <code>/api/v1/products</code> 🔒</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/{product_id}/images</code></td>
+<td>Agregar imagen a la galería (201)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/{product_id}/images</code></td>
+<td>Listar ordenadas por <code>sort_order</code></td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/{product_id}/images/{image_id}</code></td>
+<td>Actualizar url / alt_text / orden</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/{product_id}/images/{image_id}</code></td>
+<td>Borrado físico — los assets no tienen soft delete (204)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="configuracion-de-tienda-apiv1settings">Configuración de tienda — <code>/api/v1/settings</code> 🔒</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET / PUT</td>
+<td><code>/branding</code></td>
+<td><code>logo_url</code>, <code>banner_url</code>, <code>theme.{primary,accent}</code> (hex <code>#RRGGBB</code> validado)</td>
+</tr>
+<tr>
+<td>GET / PUT</td>
+<td><code>/profile</code></td>
+<td><code>tagline</code>, <code>description</code>, <code>contact.{address,phone,email,whatsapp,maps_url,hours[],social{facebook,instagram,tiktok,x,youtube}}</code></td>
+</tr>
+</tbody>
+</table>
+<p>Ambos PUT son <strong>reemplazo total</strong>: lo que se omite queda en null. Todas las URLs deben empezar con
+<code>http://</code> o <code>https://</code>.</p>
+<h3 id="administracion-de-la-plataforma-apiv1saasadmin-solo-saas_admin">Administración de la plataforma — <code>/api/v1/saasadmin</code> 🔒 (solo <code>saas_admin</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/tenants</code></td>
+<td>Alta de un negocio nuevo (201)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="suscripciones-apiv1billing-no-implementado">Suscripciones — <code>/api/v1/billing</code> ⚠️ <strong>NO IMPLEMENTADO</strong></h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/checkout</code></td>
+<td><code>NotImplementedError</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/webhook</code></td>
+<td><code>NotImplementedError</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/plan</code></td>
+<td><code>NotImplementedError</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="tienda-publica-s">Tienda pública — <code>/s</code> 🌐</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/{slug}</code></td>
+<td>Info pública del negocio (branding + perfil)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/{slug}/products</code></td>
+<td>Catálogo paginado — <strong>solo productos <code>final</code></strong></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/{slug}/products/{product_id}</code></td>
+<td>Detalle público de un producto</td>
+</tr>
+</tbody>
+</table>
+<p>Cacheado en Redis con TTL de 5 minutos; se invalida automáticamente en cada mutación de productos.</p>
+<h3 id="descubrimiento-apiv1explore">Descubrimiento — <code>/api/v1/explore</code> 🌐</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/categories</code></td>
+<td>Tipos de negocio con al menos una tienda pública activa (nunca expone <code>platform</code>)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td>``</td>
+<td>Listado paginado de tiendas, filtrable por <code>category</code> y <code>search</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="clientes-apiv1consumers">Clientes — <code>/api/v1/consumers</code></h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Acceso</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/register</code></td>
+<td>🌐</td>
+<td>Alta de cliente (201)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/login</code></td>
+<td>🌐</td>
+<td>Autenticación de cliente</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/me</code></td>
+<td>👤</td>
+<td>Perfil del cliente autenticado</td>
+</tr>
+</tbody>
+</table>
+<h3 id="carrito-apiv1cart">Carrito — <code>/api/v1/cart</code> 👤</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/{slug}/items</code></td>
+<td>Agregar o actualizar producto (<code>quantity = 0</code> lo elimina)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/{slug}</code></td>
+<td>Ver carrito de esa tienda</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/{slug}/items/{product_id}</code></td>
+<td>Quitar un producto</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/{slug}</code></td>
+<td>Vaciar el carrito (204)</td>
+</tr>
+</tbody>
+</table>
+<p>El carrito es <strong>un carrito por tienda</strong>: la clave en Redis es <code>cart:{consumer_id}:{slug}</code> con TTL de 7 días.</p>
+<h3 id="pedidos-apiv1orders">Pedidos — <code>/api/v1/orders</code> 👤</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td>``</td>
+<td>Convierte el carrito en pedido (201)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td>``</td>
+<td>Mis pedidos en todas las tiendas, paginado</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/{order_id}</code></td>
+<td>Detalle; pedidos ajenos devuelven 404</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ventas-del-negocio-apiv1ordersbusiness">Ventas del negocio — <code>/api/v1/orders/business</code> 🔒</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/sales</code></td>
+<td>Ventas del tenant con filtros y resumen agregado</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/sales/{order_id}/status</code></td>
+<td>Cambia el estado de una venta propia</td>
+</tr>
+</tbody>
+</table>
+<p>La cara B2B de los mismos pedidos. Hasta esta versión <strong>todas</strong> las rutas de <code>/orders</code> exigían JWT de
+consumer, así que el negocio no tenía forma de consultar sus propias ventas pese a que la tabla
+<code>orders</code> ya guardaba <code>tenant_id</code>.</p>
+<ul>
+<li><strong>Filtros:</strong> <code>date_from</code>, <code>date_to</code> (exclusivo), <code>status</code>, <code>search</code> (folio, nombre o correo del
+  cliente), <code>page</code>, <code>page_size</code> (máx. 100).</li>
+<li><strong>Resumen:</strong> <code>order_count</code>, <code>canceled_count</code>, <code>revenue</code> y <code>units</code> se calculan sobre <strong>todo el
+  conjunto filtrado</strong>, no sobre la página devuelta — un total que sumara solo las filas visibles
+  sería incorrecto al pedir la página 1 de 8. Los cancelados se cuentan aparte y no suman al ingreso.</li>
+<li><strong>Aislamiento:</strong> el <code>tenant_id</code> sale del JWT, nunca de la query.</li>
+<li><strong>Orden de rutas:</strong> <code>/business/sales</code> se declara <strong>antes</strong> que <code>/{order_id}</code>; al revés, el parámetro
+  de ruta captura <code>business</code> y lo interpreta como identificador de pedido.</li>
+</ul>
+<p>El <code>PATCH</code> acepta los cuatro estados del modelo, incluido retroceder, porque el negocio necesita poder
+corregir un estado marcado por error. Antes de existir, los pedidos nacían en <code>pending</code> y nada podía
+moverlos.</p>
+<h3 id="salud">Salud</h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/health</code></td>
+<td>Liveness probe: <code>{"status": "ok", "env": "..."}</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8-el-checkout-transaccion-atomica-con-cascada">8. El checkout: transacción atómica con cascada</h2>
+<p>Es la pieza más delicada del sistema (<span class=\"ref\">orders/service.py</span>). Ocurre en dos fases
+dentro de una sola transacción de base de datos:</p>
+<p><strong>Fase 1 — análisis con bloqueo de filas.</strong> Por cada ítem del carrito hace <code>SELECT ... FOR UPDATE</code>
+sobre el producto final <strong>y sobre cada insumo de su receta</strong>. El bloqueo a nivel de fila evita que dos
+compradores simultáneos vendan la última unidad (condición de carrera clásica). Clasifica cada ítem
+como surtible o no, y en este último caso distingue el motivo: <code>product_shortage</code>, <code>ingredient_shortage</code>,
+<code>product_and_ingredient</code> o <code>unavailable</code>.</p>
+<p><strong>Fase 2 — aplicación.</strong> Descuenta el stock del producto final, descuenta <strong>en cascada</strong> cada insumo
+por <code>receta.quantity × unidades_vendidas</code>, escribe un <code>InventoryTransaction</code> por cada movimiento
+(con nota indicando de qué venta proviene), y crea la orden con sus líneas a precio congelado.</p>
+<p>El carrito en Redis se borra <strong>solo después</strong> del commit exitoso, para que un fallo nunca deje al
+cliente sin carrito y sin pedido.</p>
+<p><strong>Manejo de faltantes</strong> — lo decide el cliente vía <code>on_insufficient_stock</code>:
+- <code>"reject"</code> (default): <code>rollback()</code> que libera los locks sin cambiar nada, y responde <strong>409</strong> con un
+  cuerpo procesable por el frontend:
+  <code>json
+  {
+    "success": false,
+    "code": "INSUFFICIENT_STOCK",
+    "error": "Algunos productos no tienen stock suficiente",
+    "details": {
+      "all_unavailable": false,
+      "unavailable": [{
+        "product_id": "...", "product_name": "...", "requested": 3,
+        "reason": "ingredient_shortage",
+        "missing_ingredients": [{"insumo_name": "Tomate", "required": 6, "available": 2, "unit": "kg"}]
+      }]
+    }
+  }</code>
+- <code>"skip"</code>: crea el pedido omitiendo lo faltante y lo reporta en <code>skipped[]</code>. Si <strong>nada</strong> es surtible,
+  responde 409 con <code>all_unavailable: true</code>.</p>
+<hr />
+<h2 id="9-seguridad-y-aislamiento-multi-tenant">9. Seguridad y aislamiento multi-tenant</h2>
+<table>
+<thead>
+<tr>
+<th>Mecanismo</th>
+<th>Implementación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Contraseñas</td>
+<td>bcrypt con 12 rounds (<span class=\"ref\">core/security.py</span>). Un hash corrupto se trata como "no coincide", nunca como error 500</td>
+</tr>
+<tr>
+<td><code>tenant_id</code></td>
+<td><strong>Jamás</strong> se lee del request. Sale del JWT verificado (B2B) o del slug (B2C)</td>
+</tr>
+<tr>
+<td>Recursos ajenos</td>
+<td>Devuelven <strong>404</strong>, indistinguible de "no existe" — no se filtra la existencia de datos de otros</td>
+</tr>
+<tr>
+<td>Revocación</td>
+<td>Blacklist de tokens en Redis (<code>auth:blacklist:{token}</code>), consultada en cada request</td>
+</tr>
+<tr>
+<td>Cuentas desactivadas</td>
+<td><code>get_current_user</code> recarga de la base: pierden acceso al instante</td>
+</tr>
+<tr>
+<td>Fuerza bruta</td>
+<td>5 intentos → 15 min de bloqueo, contadores en Redis</td>
+</tr>
+<tr>
+<td>Autorización por rol</td>
+<td><code>require_role("saas_admin")</code> como dependency reutilizable</td>
+</tr>
+<tr>
+<td>Fuga de información en login</td>
+<td>Email inexistente, password incorrecto y cuenta inactiva devuelven el mismo 401</td>
+</tr>
+<tr>
+<td>Errores</td>
+<td>Mensajes genéricos al usuario; el detalle solo va a logs</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="10-uso-de-redis-4-funciones">10. Uso de Redis (4 funciones)</h2>
+<table>
+<thead>
+<tr>
+<th>Uso</th>
+<th>Clave</th>
+<th>TTL</th>
+<th>Si Redis cae</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Carrito de compras</strong></td>
+<td><code>cart:{consumer_id}:{slug}</code></td>
+<td>7 días</td>
+<td><strong>503</strong> — el carrito <em>es</em> Redis</td>
+</tr>
+<tr>
+<td>Caché del catálogo público</td>
+<td><code>storefront:catalog:{slug}:*</code></td>
+<td>5 min</td>
+<td>Lee de Postgres</td>
+</tr>
+<tr>
+<td>Contadores de login fallido</td>
+<td><code>auth:failed:{email}</code> / <code>auth:lockout:{email}</code></td>
+<td>15 min</td>
+<td>Sin bloqueo, sigue operando</td>
+</tr>
+<tr>
+<td>Blacklist de logout</td>
+<td><code>auth:blacklist:{token}</code></td>
+<td>vida del token</td>
+<td>Sin revocación, sigue operando</td>
+</tr>
+</tbody>
+</table>
+<p>El cliente (<span class=\"ref\">core/redis_client.py</span>) es <strong>lazy y tolerante a fallos</strong>: si no puede
+conectar, loguea un warning y la API sigue funcionando. La única excepción deliberada es el carrito.</p>
+<p><strong>Caída tratada como temporal.</strong> Un fallo de conexión no apaga el cliente para siempre: tras el fallo se
+espera un enfriamiento de 30 s y se vuelve a intentar. La versión anterior marcaba el servicio como no
+disponible de forma permanente para toda la vida del proceso, de modo que un hipo de red de un segundo
+dejaba el carrito caído hasta el siguiente redeploy, aunque Redis volviera enseguida. El enfriamiento
+evita además que cada petición pague el timeout completo mientras Redis está caído: solo una lo hace
+cada 30 s. Los timeouts de conexión y socket son de <strong>5 s</strong> — el segundo original se quedaba corto
+contra un Redis gestionado en la nube.</p>
+<blockquote>
+<p>⚠️ <strong>En despliegue, <code>REDIS_URL</code> debe apuntar a un servicio real.</strong> El valor de desarrollo
+<code>redis://redis:6379</code> es el nombre del servicio de <code>docker-compose</code> y solo resuelve dentro de la red de
+Docker en la máquina local. Publicado en un PaaS, ese host no existe: la API arranca bien, el catálogo
+y el login siguen operando, y <strong>solo el carrito devuelve 503</strong> — una firma engañosa que parece un bug
+del carrito cuando en realidad es un servicio de infraestructura ausente. Ver §13.</p>
+</blockquote>
+<hr />
+<h2 id="11-manejo-de-errores">11. Manejo de errores</h2>
+<p>22 excepciones de dominio en <span class=\"ref\">core/exceptions.py</span>, traducidas a HTTP por handlers
+centralizados en <span class=\"ref\">main.py</span>. Formato uniforme: <code>{"success": false, "error": "mensaje"}</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Código</th>
+<th>Cuándo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>400</td>
+<td>Email duplicado, nombre de producto repetido, stock insuficiente en venta directa, receta inválida, carrito vacío</td>
+</tr>
+<tr>
+<td>401</td>
+<td>Credenciales inválidas, token ausente/expirado/revocado</td>
+</tr>
+<tr>
+<td>402</td>
+<td>Límite del plan excedido</td>
+</tr>
+<tr>
+<td>403</td>
+<td>Acceso cross-tenant, cuenta bloqueada, rol insuficiente</td>
+</tr>
+<tr>
+<td>404</td>
+<td>Producto / imagen / tenant / storefront / pedido / consumer no encontrado (incluye "es de otro dueño")</td>
+</tr>
+<tr>
+<td>409</td>
+<td>Conflicto de stock en checkout (con detalle estructurado)</td>
+</tr>
+<tr>
+<td>422</td>
+<td>Metadata JSONB que no cumple el esquema del giro</td>
+</tr>
+<tr>
+<td>503</td>
+<td>Redis caído durante una operación de carrito</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="12-notificaciones-por-email">12. Notificaciones por email</h2>
+<p>Módulo <code>notifications</code> con Resend. Cinco plantillas HTML implementadas: <code>tenant_welcome</code>,
+<code>consumer_welcome</code>, <code>low_stock_alert</code>, <code>payment_confirmed</code>, <code>payment_failed</code>. Los envíos son
+<em>fire-and-forget</em>: un fallo de email nunca tumba la operación de negocio. Si <code>RESEND_API_KEY</code> está
+vacío, el envío se desactiva de forma segura (útil en desarrollo local).</p>
+<hr />
+<h2 id="13-configuracion-env">13. Configuración (.env)</h2>
+<p>Todo se lee vía <span class=\"ref\">core/config.py</span>. <strong>Nada está hardcodeado</strong> — <code>DATABASE_URL</code>,
+<code>JWT_SECRET_KEY</code>, <code>REDIS_URL</code> y <code>CORS_ORIGINS</code> son obligatorias y el arranque falla si faltan.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Para qué</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATABASE_URL</code></td>
+<td>Conexión a Postgres (Neon o Docker local)</td>
+</tr>
+<tr>
+<td><code>JWT_SECRET_KEY</code> / <code>JWT_ALGORITHM</code> / <code>JWT_EXPIRATION_HOURS</code></td>
+<td>Firma y vigencia de tokens (default HS256, 24 h)</td>
+</tr>
+<tr>
+<td><code>REDIS_URL</code></td>
+<td>Carrito, caché, lockouts</td>
+</tr>
+<tr>
+<td><code>CORS_ORIGINS</code></td>
+<td>Orígenes permitidos, separados por coma</td>
+</tr>
+<tr>
+<td><code>RESEND_API_KEY</code> / <code>EMAIL_FROM</code> / <code>EMAIL_FROM_NAME</code></td>
+<td>Emails (vacío = desactivado)</td>
+</tr>
+<tr>
+<td><code>APP_URL</code></td>
+<td>Base de los links en los correos</td>
+</tr>
+<tr>
+<td><code>ENVIRONMENT</code> / <code>LOG_LEVEL</code></td>
+<td>Entorno y verbosidad</td>
+</tr>
+<tr>
+<td><code>PORT_BACKEND</code> / <code>PORT_DB</code> / <code>PORT_REDIS</code></td>
+<td>Mapeo de puertos al host</td>
+</tr>
+</tbody>
+</table>
+<h3 id="diferencias-entre-desarrollo-y-despliegue">Diferencias entre desarrollo y despliegue</h3>
+<p>El archivo <code>.env</code> está en el <code>.dockerignore</code>, así que <strong>nunca entra a la imagen</strong>. En un despliegue las
+variables del proveedor son la única fuente, y además <code>pydantic-settings</code> les da prioridad sobre el
+archivo. Tres valores no se pueden copiar tal cual desde el <code>.env</code> de desarrollo:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Desarrollo</th>
+<th>Despliegue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>REDIS_URL</code></td>
+<td><code>redis://redis:6379</code> (servicio de compose)</td>
+<td>Cadena de conexión interna de un Redis gestionado, en la misma región que la API</td>
+</tr>
+<tr>
+<td><code>CORS_ORIGINS</code></td>
+<td><code>http://localhost:3000</code></td>
+<td>Origen público del frontend, <strong>sin barra final</strong> — la comparación es literal y <code>https://app.com/</code> no coincide con <code>https://app.com</code></td>
+</tr>
+<tr>
+<td><code>APP_URL</code></td>
+<td><code>http://localhost:3000</code></td>
+<td>Origen público del frontend; es la base de los links de los correos</td>
+</tr>
+</tbody>
+</table>
+<p><code>CORS_ORIGINS</code> admite varios orígenes separados por coma, así que puede convivir el de producción con
+<code>localhost</code> para desarrollo.</p>
+<hr />
+<h2 id="14-como-levantar-el-proyecto">14. Cómo levantar el proyecto</h2>
+<pre><code class="language-bash">docker compose up -d
+</code></pre>
+<p>Tras cambiar código Python:</p>
+<pre><code class="language-bash">docker compose up -d --build backend
+</code></pre>
+<ul>
+<li>API: <code>http://localhost:8000</code></li>
+<li>Swagger interactivo: <code>http://localhost:8000/docs</code></li>
+<li>Health: <code>http://localhost:8000/health</code></li>
+</ul>
+<h3 id="cambios-de-esquema-en-la-base">Cambios de esquema en la base</h3>
+<p>No hay Alembic. El flujo es manual:
+1. La verdad del esquema completo está en <span class=\"ref\">kard_database.sql</span>.
+2. Los cambios incrementales van en <code>migrations/NNN_descripcion.sql</code>.
+3. Se ejecutan <strong>a mano en el SQL Editor de Neon</strong>.
+4. Se actualiza el modelo ORM en <span class=\"ref\">db/models.py</span>.</p>
+<p>Migraciones existentes: <code>001</code> (slug + consumer_events), <code>002</code> (consumers), <code>003</code> (orders), <code>004</code> (recetas).</p>
+<h3 id="datos-de-demo">Datos de demo</h3>
+<p><code>seeders/seed_optica_demo.py</code>, <code>seed_restaurant_insumos.py</code>, <code>seed_stock_and_recipes.py</code>.</p>
+<hr />
+<h2 id="15-herramientas-mcp-preparadas-no-conectadas">15. Herramientas MCP (preparadas, no conectadas)</h2>
+<p><span class=\"ref\">products/mcp_tools.py</span> declara la <em>forma</em> de 5 herramientas para agentes de IA:
+<code>create_product</code>, <code>list_products</code>, <code>get_product</code>, <code>update_product</code>, <code>sell_product</code>.</p>
+<p>Deliberadamente <strong>excluidas</strong> por seguridad: <code>delete_product</code> (destructivo aunque sea soft) y
+<code>restock_product</code> (decisión humana). El módulo solo registra definiciones — no lo importa ni ejecuta la
+app; conectarlo a un runtime MCP es un paso posterior.</p>
+<hr />
+<h2 id="16-reporte-de-ventas-del-negocio">16. Reporte de ventas del negocio</h2>
+<p>La cara visible de <code>/api/v1/orders/business/sales</code> (§7) es la vista <strong>Ventas</strong> del panel, en el
+frontend. Se documenta aquí porque el contrato que consume nació con ella.</p>
+<h3 id="que-ofrece-la-vista">Qué ofrece la vista</h3>
+<p>Filtros por atajo de mes, rango de fechas libre, estado y búsqueda; indicadores de ingreso, pedidos,
+artículos, ticket promedio y cancelados; tabla paginada con el estado editable en línea; y dos
+descargas. El atajo de mes y el rango libre se invalidan mutuamente para que no queden filtros
+contradictorios en pantalla.</p>
+<h3 id="las-dos-descargas">Las dos descargas</h3>
+<table>
+<thead>
+<tr>
+<th>Formato</th>
+<th>Contenido</th>
+<th>Para qué</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CSV</strong></td>
+<td>Una fila por venta, con BOM para que Excel respete los acentos</td>
+<td>Desglose transaccional: filtrar, sumar, cruzar con otras fuentes</td>
+</tr>
+<tr>
+<td><strong>PDF</strong></td>
+<td>Resumen ejecutivo de una sola hoja, con gráficas</td>
+<td>Lectura y entrega</td>
+</tr>
+</tbody>
+</table>
+<p>Ambas se arman sobre el <strong>conjunto filtrado completo</strong>, no sobre la página visible. Como el endpoint
+topa <code>page_size</code> en 100, el cliente junta páginas de 100 hasta completar el total; pedir las 2000 de un
+tirón devuelve <code>422</code>. El tope se dejó intacto a propósito: existe para que una consulta abierta no tumbe
+al servidor, y el reporte es justo el caso que más lo tienta. El export se corta a 2000 filas y el
+documento avisa cuando recortó.</p>
+<h3 id="decisiones-del-pdf">Decisiones del PDF</h3>
+<ul>
+<li><strong>Impresión del navegador, no una librería.</strong> El reporte se arma como HTML autocontenido, se abre en
+  ventana nueva y se manda al diálogo de impresión, donde el usuario elige «Guardar como PDF». Evita
+  sumar una dependencia de generación de PDF al bundle de la aplicación.</li>
+<li><strong>Resumen, no desglose.</strong> El PDF no lista venta por venta: un documento que abre con doscientas filas
+  no se lee. Contiene encabezado con logo y criterios aplicados, ingreso del periodo como cifra
+  principal con cuatro métricas de apoyo, dona de composición del ingreso por producto, columnas de
+  ingreso por día —o por mes si el rango pasa de 45 días— y reparto de pedidos por estado. El detalle
+  vive en el CSV. Entra completo en una A4.</li>
+<li><strong>Cinco productos con color propio.</strong> El resto se pliega en un «Otros» gris: seis porciones se
+  distinguen entre sí, diez se vuelven un abanico donde el color deja de identificar nada.</li>
+<li><strong>Paleta validada</strong> contra papel blanco en banda de luminosidad, croma y separación bajo daltonismo.
+  Los colores que quedan por debajo de 3:1 de contraste se acompañan siempre de etiqueta visible.</li>
+<li><strong>Los cancelados se excluyen</strong> de ingreso, unidades y de todas las gráficas, igual que en el resumen
+  del backend; se reportan aparte para que el negocio los vea sin que inflen la cifra.</li>
+</ul>
+<hr />
+<h2 id="17-estado-del-proyecto">17. Estado del proyecto</h2>
+<h3 id="implementado-y-funcionando">Implementado y funcionando ✅</h3>
+<p>Autenticación B2B con roles y lockout · registro self-service de tenants · CRUD completo de catálogo
+con validación JSONB por giro · inventario con bitácora inmutable · recetas con descuento en cascada ·
+galería de imágenes · branding y perfil de tienda · storefront público con caché · descubrimiento de
+tiendas · identidad de clientes · carrito en Redis · checkout atómico con bloqueo de filas ·
+<strong>consulta de ventas del negocio con filtros y reporte descargable</strong> · <strong>cambio manual de estado de un
+pedido</strong> · emails transaccionales · auditoría · Docker Compose.</p>
+<h3 id="pendiente">Pendiente ⚠️</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Qué falta</th>
+<th>Impacto</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Stripe / billing</strong> — los 3 endpoints lanzan <code>NotImplementedError</code></td>
+<td>El cobro real sigue sin existir. El <code>PATCH</code> de estado permite marcar un pedido como pagado a mano, así que ya no bloquea la demostración, pero no sustituye la pasarela</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Cobertura de pruebas</strong> — 14 pruebas en verde, ninguna sobre los endpoints nuevos de ventas</td>
+<td>El aislamiento cross-tenant de <code>/business/sales</code> no está cubierto, pese a que Rules.md §15 lo exige</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Dashboard de métricas</strong> (US-009 a US-011)</td>
+<td>Parcialmente cubierto: <code>/business/sales</code> ya entrega totales, ingreso y unidades del periodo. Faltan ventas por categoría y tendencias comparadas</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Zona horaria en los filtros de fecha</strong></td>
+<td>Los filtros mandan fechas sin zona y <code>created_at</code> se guarda en UTC: una venta de la tarde del último día del mes puede caer en el reporte del mes siguiente</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong><code>businessadmin/</code></strong> — módulo esqueleto</td>
+<td>Sin impacto: sus funciones viven en <code>settings</code> y <code>products</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong><code>utils/validators.py</code></strong> — solo un comentario</td>
+<td>Sin impacto: la validación real vive en los <code>models.py</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>Verificar que la migración <code>003</code> esté aplicada en la base gestionada</td>
+<td>Si falta, los pedidos fallan en tiempo de ejecución</td>
+</tr>
+</tbody>
+</table>
+<h3 id="recomendacion-de-siguiente-paso">Recomendación de siguiente paso</h3>
+<p>Las <strong>pruebas de aislamiento multi-tenant</strong> siguen siendo la prioridad técnica: protegen la promesa
+central del producto (que un negocio jamás vea datos de otro) y <code>/business/sales</code> acaba de ampliar la
+superficie expuesta, porque devuelve el histórico comercial completo de un tenant. Después, corregir la
+zona horaria de los filtros —que hoy puede desplazar ventas de un periodo a otro en el reporte— y por
+último Stripe para cerrar el ciclo comercial.</p>
+
+</body>
+</html>
