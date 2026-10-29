@@ -70,6 +70,25 @@ class StorefrontContact(BaseModel):
     social: StorefrontSocial = Field(default_factory=StorefrontSocial)
 
 
+class StorefrontFulfillment(BaseModel):
+    """
+    Modos de entrega que el visitante puede elegir en el checkout.
+
+    El cliente necesita saberlo ANTES de comprar: sin esto la tienda no
+    puede preguntar «¿para comer aquí o para llevar?» y todos los pedidos
+    terminan con el modo por defecto. La tarifa de envío también viaja,
+    para poder mostrar el costo antes de confirmar.
+    """
+
+    dine_in: bool = False
+    takeaway: bool = True
+    pickup: bool = True
+    delivery: bool = False
+    shipping_flat_fee: Decimal = Decimal("0.00")
+    free_shipping_above: Optional[Decimal] = None
+    delivery_notes: Optional[str] = None
+
+
 class StorefrontTenantResponse(BaseModel):
     """Public business info shown at GET /s/{slug}."""
 
@@ -84,3 +103,5 @@ class StorefrontTenantResponse(BaseModel):
     tagline: Optional[str] = None
     description: Optional[str] = None
     contact: StorefrontContact = Field(default_factory=StorefrontContact)
+    # operativo — qué puede elegir el cliente al comprar
+    fulfillment: StorefrontFulfillment = Field(default_factory=StorefrontFulfillment)

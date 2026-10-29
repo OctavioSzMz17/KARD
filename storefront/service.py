@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 
 from core.exceptions import StorefrontNotFoundError
 from core.redis_client import STOREFRONT_CACHE_TTL, get_redis
-from core.tenant_config import read_branding, read_profile
+from core.tenant_config import read_branding, read_fulfillment, read_profile
 from images.repository import ImageRepository
 from storefront.models import (
     StorefrontContact,
+    StorefrontFulfillment,
     StorefrontHourEntry,
     StorefrontImageResponse,
     StorefrontProductListResponse,
@@ -66,6 +67,7 @@ class StorefrontService:
             tagline=profile["tagline"],
             description=profile["description"],
             contact=self._to_public_contact(profile["contact"]),
+            fulfillment=StorefrontFulfillment(**read_fulfillment(tenant.config)),
         )
 
     @staticmethod
