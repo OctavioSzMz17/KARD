@@ -247,19 +247,57 @@ class ConsumerEvent(Base):
 
 class Order(Base):
     """
-    A confirmed purchase intent from a consumer at a single tenant.
+    Una venta de un negocio, sin importar por dónde entró.
 
-    Status flow: pending → paid → fulfilled | canceled
-    Cart (Redis) is cleared atomically when this record is created.
+    Dos ejes independientes describen cada venta (migración 005):
+
+      captured_by       quién la capturó   → staff (POS) | self (el cliente)
+      fulfillment_type  cómo la recibe     → dine_in | takeaway | pickup | delivery
+
+    Y dos estados que NO son el mismo:
+
+      status              estado de PAGO     → pending | paid | refunded | canceled
+      fulfillment_status  estado de ENTREGA  → preparing | ready | in_transit | completed | canceled
+
+    Separarlos es necesario porque son ortogonales: en una mesa se pide
+    primero y se paga al final, así que un pedido puede estar servido y
+    sin pagar; y un envío contra entrega viaja pagado-no.
+
+    `consumer_id` es nullable: una venta de mostrador no tiene cuenta de
+    cliente detrás. El CHECK `orders_has_an_author` garantiza que siempre
+    haya un consumer o un usuario del negocio.
     """
 
     __tablename__ = "orders"
 
     id = Column(String(50), primary_key=True)
-    consumer_id = Column(String(30), ForeignKey("consumers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    consumer_id = Column(String(30), ForeignKey("consumers.id", ondelete="RESTRICT"), nullable=True, index=True)
     tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+
+    # Pago
     status = Column(String(20), nullable=False, default="pending")
+    payment_method = Column(String(20), nullable=True)
+
+    # Origen y entrega
+    captured_by = Column(String(10), nullable=False, default="self")
+    fulfillment_type = Column(String(20), nullable=False, default="pickup")
+    fulfillment_status = Column(String(20), nullable=False, default="preparing")
+
+    # Quién cobró (solo ventas de mostrador)
+    user_id = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Importes. El envío va aparte para que no infle el ingreso por productos.
+    subtotal = Column(Numeric(10, 2), nullable=False)
+    shipping_cost = Column(Numeric(10, 2), nullable=False, default=0)
     total = Column(Numeric(10, 2), nullable=False)
+
+    # Datos de la entrega. La dirección es una COPIA del momento de la compra,
+    # no una referencia: si el cliente la edita después, el pedido histórico
+    # debe seguir diciendo a dónde se mandó.
+    shipping_address = Column(JSONB, nullable=True)
+    table_number = Column(String(20), nullable=True)
+    customer_name = Column(String(120), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

@@ -2,18 +2,85 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+
+# Modos de entrega. `dine_in` es consumo en el local (pedido desde la mesa);
+# `takeaway` se lo lleva ahora; `pickup` lo recoge después; `delivery` se envía.
+FulfillmentType = Literal["dine_in", "takeaway", "pickup", "delivery"]
+PaymentMethod = Literal["cash", "card", "transfer", "online"]
 
 
-class CreateOrderRequest(BaseModel):
+class ShippingAddress(BaseModel):
+    """
+    Dirección de entrega. Se guarda COPIADA dentro del pedido, no referenciada:
+    si el cliente la edita después, el pedido histórico debe seguir diciendo a
+    dónde se mandó realmente.
+    """
+
+    street: str = Field(..., min_length=3, max_length=200)
+    neighborhood: Optional[str] = Field(default=None, max_length=120)
+    city: str = Field(..., min_length=2, max_length=120)
+    state: Optional[str] = Field(default=None, max_length=120)
+    postal_code: Optional[str] = Field(default=None, max_length=12)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    notes: Optional[str] = Field(default=None, max_length=300)
+
+
+class _FulfillmentFields(BaseModel):
+    """Campos de entrega comunes al checkout del cliente y a la venta de mostrador."""
+
+    fulfillment_type: FulfillmentType
+    table_number: Optional[str] = Field(default=None, max_length=20)
+    shipping_address: Optional[ShippingAddress] = None
+
+    @model_validator(mode="after")
+    def _coherent_fulfillment(self):
+        """
+        Cada modo exige sus propios datos. Validar aquí evita crear pedidos
+        imposibles de entregar: un envío sin dirección, o una mesa sin número.
+        """
+        if self.fulfillment_type == "delivery" and self.shipping_address is None:
+            raise ValueError("Un envío necesita dirección de entrega")
+        if self.fulfillment_type == "dine_in" and not (self.table_number or "").strip():
+            raise ValueError("Un consumo en el local necesita número de mesa")
+        if self.fulfillment_type != "delivery" and self.shipping_address is not None:
+            raise ValueError("Solo un envío lleva dirección de entrega")
+        return self
+
+
+class CreateOrderRequest(_FulfillmentFields):
+    """Checkout del cliente (B2C): convierte su carrito de Redis en un pedido."""
+
     slug: str
+    fulfillment_type: FulfillmentType = "pickup"
     on_insufficient_stock: Literal["reject", "skip"] = "reject"
     # "reject" (default): si algún producto/insumo no tiene stock → 409 con el
     #   detalle de lo faltante, no se crea nada.
     # "skip": crea el pedido omitiendo los productos no disponibles y los
     #   reporta en `skipped`.
+
+
+class PosSaleItem(BaseModel):
+    product_id: str = Field(..., max_length=60)
+    quantity: int = Field(..., gt=0, le=10_000)
+
+
+class CreatePosSaleRequest(_FulfillmentFields):
+    """
+    Venta capturada por un empleado en el punto de venta.
+
+    A diferencia del checkout B2C, los artículos llegan en el cuerpo: no hay
+    carrito en Redis porque no hay cuenta de cliente detrás. El mostrador
+    cobra en el momento, así que el pago nace saldado.
+    """
+
+    items: list[PosSaleItem] = Field(..., min_length=1, max_length=200)
+    fulfillment_type: FulfillmentType = "takeaway"
+    payment_method: PaymentMethod = "cash"
+    customer_name: Optional[str] = Field(default=None, max_length=120)
+    on_insufficient_stock: Literal["reject", "skip"] = "reject"
 
 
 class OrderItemResponse(BaseModel):
@@ -37,7 +104,12 @@ class OrderResponse(BaseModel):
     slug: str
     business_name: str
     status: str
+    fulfillment_type: str
+    fulfillment_status: str
+    subtotal: Decimal
+    shipping_cost: Decimal
     total: Decimal
+    table_number: Optional[str] = None
     items: list[OrderItemResponse]
     skipped: list[SkippedItemResponse] = []
     created_at: datetime
@@ -54,14 +126,27 @@ class OrderListResponse(BaseModel):
 
 
 class SaleResponse(BaseModel):
-    """Una venta vista desde el negocio: incluye quién compró."""
+    """
+    Una venta vista desde el negocio.
+
+    `customer_email` es opcional porque una venta de mostrador no tiene cuenta
+    de cliente detrás; en ese caso `customer_name` cae en lo que el empleado
+    haya capturado, o en una etiqueta genérica.
+    """
 
     order_id: str
     status: str
+    fulfillment_type: str
+    fulfillment_status: str
+    captured_by: str
+    payment_method: Optional[str] = None
+    subtotal: Decimal
+    shipping_cost: Decimal
     total: Decimal
     item_count: int
     customer_name: str
-    customer_email: str
+    customer_email: Optional[str] = None
+    table_number: Optional[str] = None
     items: list[OrderItemResponse]
     created_at: datetime
 
@@ -78,18 +163,35 @@ class SalesSummary(BaseModel):
     canceled_count: int
     revenue: Decimal
     units: int
+    # Cuánto del ingreso fue envío y no producto. Sin este desglose, el
+    # reporte contaría la logística como venta de catálogo.
+    shipping: Decimal = Decimal("0.00")
 
 
 class UpdateSaleStatusRequest(BaseModel):
     """
     Cambio de estado hecho por el negocio.
 
-    Se permite cualquier destino, incluido volver atras: el negocio necesita
-    poder corregir un estado marcado por error, y Literal ya impide que
-    llegue un valor inventado (422 automatico).
+    Los dos ejes se mueven por separado — se puede marcar un pedido como
+    pagado sin tocar su preparación, o servirlo sin haberlo cobrado — y se
+    permite cualquier destino, incluido volver atrás, porque el negocio
+    necesita corregir un estado marcado por error. `Literal` ya impide que
+    llegue un valor inventado (422 automático).
+
+    `status` se mantiene con los valores históricos, incluido `fulfilled`,
+    para no romper las ventas ya registradas ni el panel que las muestra.
     """
 
-    status: Literal["pending", "paid", "fulfilled", "canceled"]
+    status: Optional[Literal["pending", "paid", "refunded", "fulfilled", "canceled"]] = None
+    fulfillment_status: Optional[
+        Literal["preparing", "ready", "in_transit", "completed", "canceled"]
+    ] = None
+
+    @model_validator(mode="after")
+    def _at_least_one(self):
+        if self.status is None and self.fulfillment_status is None:
+            raise ValueError("Indica al menos un estado a cambiar")
+        return self
 
 
 class SalesReportResponse(BaseModel):

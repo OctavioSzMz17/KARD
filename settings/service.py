@@ -21,11 +21,13 @@ from auth.repository import TenantRepository
 from core.dependencies import CurrentUser
 from core.exceptions import TenantNotFoundError
 from core.redis_client import invalidate_storefront_cache
-from core.tenant_config import merge_config_key, read_branding, read_profile
+from core.tenant_config import merge_config_key, read_branding, read_fulfillment, read_profile
 from settings.models import (
     BrandingResponse,
     BrandingUpdate,
     ContactModel,
+    FulfillmentResponse,
+    FulfillmentUpdate,
     ProfileResponse,
     ProfileUpdate,
     ThemeModel,
@@ -101,6 +103,36 @@ class SettingsService:
         self._commit_config(tenant, "profile", profile)
         logger.info("Profile updated for tenant_id=%s", tenant.id)
         return self._profile_response(read_profile(tenant.config))
+
+    # ------------------------------------------------------------------
+    # Entrega (modos ofrecidos + tarifa de envío)
+    # ------------------------------------------------------------------
+
+    def get_fulfillment(self, current_user: CurrentUser) -> FulfillmentResponse:
+        tenant = self.tenants.get_by_id(current_user.tenant_id)
+        if tenant is None:
+            raise TenantNotFoundError(current_user.tenant_id)
+        return FulfillmentResponse(**read_fulfillment(tenant.config))
+
+    def update_fulfillment(self, payload: FulfillmentUpdate, current_user: CurrentUser) -> FulfillmentResponse:
+        tenant = self._locked_tenant(current_user.tenant_id)
+
+        fulfillment = {
+            "dine_in": payload.dine_in,
+            "takeaway": payload.takeaway,
+            "pickup": payload.pickup,
+            "delivery": payload.delivery,
+            # Los importes se guardan como string: el JSONB no distingue
+            # decimales de flotantes y redondearía centavos.
+            "shipping_flat_fee": str(payload.shipping_flat_fee),
+            "free_shipping_above": (
+                str(payload.free_shipping_above) if payload.free_shipping_above is not None else None
+            ),
+            "delivery_notes": payload.delivery_notes,
+        }
+        self._commit_config(tenant, "fulfillment", fulfillment)
+        logger.info("Fulfillment updated for tenant_id=%s", tenant.id)
+        return FulfillmentResponse(**read_fulfillment(tenant.config))
 
     # ------------------------------------------------------------------
     # Internals

@@ -1,6 +1,11 @@
 fastapi
 uvicorn
-sqlalchemy
+# Fijado: en SQLAlchemy 2.1 el driver por defecto de `postgresql://` cambió
+# de psycopg2 a psycopg3. Como el proyecto instala psycopg2-binary, una
+# reconstrucción con 2.1 arranca pidiendo un módulo que no existe. Subir a
+# 2.1 exige añadir `psycopg[binary]` o escribir `postgresql+psycopg2://`
+# en TODOS los entornos, incluido Render.
+sqlalchemy>=2.0,<2.1
 psycopg2-binary
 python-dotenv
 pydantic-settings

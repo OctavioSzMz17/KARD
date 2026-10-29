@@ -15,7 +15,14 @@ from sqlalchemy.orm import Session
 
 from core.dependencies import CurrentUser, get_current_user
 from db.database import get_db
-from settings.models import BrandingResponse, BrandingUpdate, ProfileResponse, ProfileUpdate
+from settings.models import (
+    BrandingResponse,
+    BrandingUpdate,
+    FulfillmentResponse,
+    FulfillmentUpdate,
+    ProfileResponse,
+    ProfileUpdate,
+)
 from settings.service import SettingsService
 
 router = APIRouter()
@@ -69,3 +76,33 @@ def update_profile(
     db: Session = Depends(get_db),
 ) -> ProfileResponse:
     return SettingsService(db).update_profile(payload, current_user)
+
+
+@router.get(
+    "/fulfillment",
+    response_model=FulfillmentResponse,
+    summary="Get the delivery modes this business offers",
+)
+def get_fulfillment(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FulfillmentResponse:
+    return SettingsService(db).get_fulfillment(current_user)
+
+
+@router.put(
+    "/fulfillment",
+    response_model=FulfillmentResponse,
+    summary="Replace the delivery modes and shipping fee",
+)
+def update_fulfillment(
+    payload: FulfillmentUpdate,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FulfillmentResponse:
+    """
+    Qué modos ofrece el negocio: consumo en el local, para llevar, recoger
+    o envío. La tienda pública solo muestra los habilitados y el checkout
+    rechaza los demás.
+    """
+    return SettingsService(db).update_fulfillment(payload, current_user)

@@ -72,10 +72,16 @@ class OrderRepository:
 
         The tenant_id filter is not optional — it is what keeps one business
         from reading another's sales (Rules.md section 2.6).
+
+        El JOIN con `consumers` es EXTERNO a propósito: una venta de mostrador
+        no tiene cliente registrado (`consumer_id` nulo desde la migración 005).
+        Con un join interno, esas ventas desaparecerían del reporte y, peor,
+        de los totales — el negocio vería ingresos menores a los reales sin
+        ninguna señal de que faltan filas.
         """
         q = (
             self.db.query(Order)
-            .join(Consumer, Consumer.id == Order.consumer_id)
+            .outerjoin(Consumer, Consumer.id == Order.consumer_id)
             .filter(Order.tenant_id == tenant_id)
         )
 
@@ -92,6 +98,9 @@ class OrderRepository:
                     Order.id.ilike(like),
                     Consumer.name.ilike(like),
                     Consumer.email.ilike(like),
+                    # El nombre capturado en el mostrador también es buscable;
+                    # si no, las ventas sin cuenta solo se encontrarían por folio.
+                    Order.customer_name.ilike(like),
                 )
             )
         return q
@@ -161,9 +170,20 @@ class OrderRepository:
             or 0
         )
 
+        # Cuánto del ingreso fue logística y no catálogo. El reporte lo resta
+        # para no presentar el envío como venta de producto.
+        shipping = (
+            self._sales_query(tenant_id, date_from, date_to, status, search)
+            .filter(Order.status != "canceled")
+            .with_entities(func.coalesce(func.sum(Order.shipping_cost), 0))
+            .scalar()
+            or 0
+        )
+
         return {
             "order_count": int(order_count or 0),
             "canceled_count": int(canceled_count or 0),
             "revenue": Decimal(revenue),
             "units": int(units),
+            "shipping": Decimal(shipping),
         }

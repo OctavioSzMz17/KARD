@@ -11,9 +11,10 @@ Contract is fixed by the frontend — do NOT rename fields:
 """
 
 import re
+from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 _HEX_RE = re.compile(r"^#([0-9a-fA-F]{6})$")
 
@@ -118,3 +119,49 @@ class ProfileUpdate(BaseModel):
     tagline: Optional[str] = Field(default=None, max_length=120)
     description: Optional[str] = Field(default=None, max_length=2000)
     contact: Optional[ContactModel] = None
+
+
+# ---------------------------------------------------------------------------
+# Entrega — qué modos ofrece el negocio y cuánto cobra por enviar
+# ---------------------------------------------------------------------------
+
+
+class FulfillmentResponse(BaseModel):
+    """
+    Modos de entrega habilitados. La tienda pública solo muestra los que estén
+    en `true`, y el checkout rechaza cualquier otro.
+    """
+
+    dine_in: bool
+    takeaway: bool
+    pickup: bool
+    delivery: bool
+    shipping_flat_fee: Decimal
+    free_shipping_above: Optional[Decimal] = None
+    delivery_notes: Optional[str] = None
+
+
+class FulfillmentUpdate(BaseModel):
+    """
+    Reemplazo completo de la configuración de entrega.
+
+    `dine_in` solo tiene sentido donde se consume en el local y `delivery`
+    exige logística, así que ambos nacen apagados: un negocio no debería
+    estar ofreciendo envíos sin haberlo decidido.
+    """
+
+    dine_in: bool = False
+    takeaway: bool = True
+    pickup: bool = True
+    delivery: bool = False
+    shipping_flat_fee: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=10, decimal_places=2)
+    free_shipping_above: Optional[Decimal] = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    delivery_notes: Optional[str] = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _coherent(self):
+        if not any([self.dine_in, self.takeaway, self.pickup, self.delivery]):
+            raise ValueError("El negocio debe ofrecer al menos un modo de entrega")
+        if not self.delivery and self.shipping_flat_fee > 0:
+            raise ValueError("No se puede cobrar envío si el envío está desactivado")
+        return self

@@ -2,11 +2,12 @@
 Helpers to read/write the tenant's editable content inside `Tenant.config`
 (JSONB) — no migration needed.
 
-Two independent namespaces live there:
+Three independent namespaces live there:
 
     config = {
-      "branding": { logo_url, banner_url, theme{primary,accent} },   # visual
-      "profile":  { tagline, description, contact{...} }             # editorial
+      "branding":    { logo_url, banner_url, theme{primary,accent} },  # visual
+      "profile":     { tagline, description, contact{...} },           # editorial
+      "fulfillment": { dine_in, takeaway, pickup, delivery, ... }      # operativo
     }
 
 The `read_*` helpers always return a fully-normalized dict (every key
@@ -66,6 +67,33 @@ def read_profile(config: Optional[dict]) -> dict:
                 "youtube": social.get("youtube"),
             },
         },
+    }
+
+
+def read_fulfillment(config: Optional[dict]) -> dict:
+    """
+    Modos de entrega que el negocio ofrece, más la tarifa de envío.
+
+    Los valores por defecto son deliberadamente conservadores: `takeaway` y
+    `pickup` sirven para cualquier giro, mientras que `dine_in` solo tiene
+    sentido donde se consume en el local y `delivery` exige logística. Un
+    negocio que no ha configurado nada no debería estar ofreciendo envíos
+    sin saberlo.
+
+    `shipping_flat_fee` y `free_shipping_above` se devuelven como string
+    para no perder precisión decimal al pasar por JSON.
+    """
+    f = (config or {}).get("fulfillment") or {}
+    return {
+        "dine_in": bool(f.get("dine_in", False)),
+        "takeaway": bool(f.get("takeaway", True)),
+        "pickup": bool(f.get("pickup", True)),
+        "delivery": bool(f.get("delivery", False)),
+        "shipping_flat_fee": str(f.get("shipping_flat_fee", "0.00")),
+        "free_shipping_above": (
+            str(f["free_shipping_above"]) if f.get("free_shipping_above") is not None else None
+        ),
+        "delivery_notes": f.get("delivery_notes"),
     }
 
 

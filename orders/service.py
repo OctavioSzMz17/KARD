@@ -1,17 +1,25 @@
 """
-Order business logic — converts a Redis cart into a DB-persisted order,
-descontando el stock del producto final Y de sus insumos (receta).
+Lógica de ventas. Un mismo pedido cubre los dos canales del producto:
 
-Flujo de checkout:
-  1. Analiza cada producto del carrito bajo bloqueo de fila (SELECT FOR UPDATE):
-     valida su propio stock y el de cada insumo de su receta.
+  · Marketplace (B2C) — el cliente arma su carrito en Redis y hace checkout.
+  · Punto de venta (B2B) — un empleado captura la venta en el mostrador, sin
+    carrito y sin cuenta de cliente.
+
+Ambos terminan en la misma tabla y comparten la parte difícil: el análisis
+bajo bloqueo de fila y el descuento en cascada de insumos.
+
+Flujo (idéntico para los dos canales):
+  1. Analiza cada artículo bajo bloqueo de fila (SELECT FOR UPDATE): valida su
+     propio stock y el de cada insumo de su receta.
   2. Si algo no alcanza:
        - on_insufficient_stock="reject" (default): rollback y OrderStockConflictError
          → 409 con el detalle estructurado para que el front pregunte al usuario.
        - on_insufficient_stock="skip": omite esos productos y sigue con el resto,
          reportándolos en `skipped`. Si no queda nada, 409 (all_skipped).
   3. Descuenta stock del final y de cada insumo, registra inventory_transactions,
-     crea Order + OrderItems, COMMIT, y borra el carrito de Redis.
+     crea Order + OrderItems y COMMIT. El carrito de Redis se borra DESPUÉS del
+     commit (solo en el canal B2C): Redis y Postgres no comparten transacción,
+     así que el único orden seguro es confirmar primero lo permanente.
 """
 
 import json
@@ -22,13 +30,18 @@ from sqlalchemy.orm import Session
 
 from core.exceptions import (
     CartEmptyError,
+    InvalidMetadataError,
     OrderNotFoundError,
     OrderStockConflictError,
+    ProductNotFoundError,
     StorefrontNotFoundError,
 )
 from core.redis_client import get_redis
+from core.tenant_config import read_fulfillment
 from db.models import Consumer, InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant
 from orders.models import (
+    CreateOrderRequest,
+    CreatePosSaleRequest,
     OrderItemResponse,
     OrderListResponse,
     OrderResponse,
@@ -43,6 +56,10 @@ from utils.helpers import generate_id
 
 logger = logging.getLogger("kard.orders")
 
+# Etiqueta para ventas sin cuenta de cliente, cuando el empleado tampoco
+# capturó un nombre. Mejor una etiqueta honesta que un campo vacío.
+WALK_IN_LABEL = "Venta de mostrador"
+
 
 class OrderService:
     def __init__(self, db: Session):
@@ -52,12 +69,15 @@ class OrderService:
     def create_from_cart(
         self,
         consumer_id: str,
-        slug: str,
-        on_insufficient_stock: str = "reject",
+        payload: CreateOrderRequest,
     ) -> OrderResponse:
+        """Checkout del marketplace: el carrito de Redis del cliente se vuelve pedido."""
+        slug = payload.slug
         tenant = StorefrontRepository(self.db).get_public_tenant_by_slug(slug)
         if tenant is None:
             raise StorefrontNotFoundError(slug)
+
+        self._assert_offered(tenant, payload.fulfillment_type)
 
         r = get_redis()
         cart_key = f"cart:{consumer_id}:{slug}"
@@ -70,7 +90,7 @@ class OrderService:
         fulfillable, unavailable = self._analyze_cart(tenant.id, cart)
 
         if unavailable:
-            if on_insufficient_stock != "skip":
+            if payload.on_insufficient_stock != "skip":
                 self.db.rollback()  # release row locks, change nothing
                 raise OrderStockConflictError(unavailable)
             if not fulfillable:
@@ -86,12 +106,24 @@ class OrderService:
             for u in unavailable
         ]
 
-        order, items_data = self._apply(tenant, consumer_id, fulfillable)
+        order, items_data = self._apply(
+            tenant,
+            fulfillable,
+            consumer_id=consumer_id,
+            captured_by="self",
+            fulfillment_type=payload.fulfillment_type,
+            # El marketplace cobra después (o contra entrega): el pedido nace
+            # pendiente de pago, aunque ya esté preparándose.
+            status="pending",
+            payment_method=None,
+            table_number=payload.table_number,
+            shipping_address=payload.shipping_address.model_dump() if payload.shipping_address else None,
+        )
 
         self.db.commit()
         logger.info(
-            "Order created: order_id=%s consumer=%s tenant=%s total=%s skipped=%d",
-            order.id, consumer_id, tenant.id, order.total, len(skipped),
+            "Order created: order_id=%s consumer=%s tenant=%s type=%s total=%s skipped=%d",
+            order.id, consumer_id, tenant.id, payload.fulfillment_type, order.total, len(skipped),
         )
 
         # Clear cart only after successful commit
@@ -99,6 +131,117 @@ class OrderService:
             r.delete(cart_key)
 
         return self._to_response(order, items_data, slug, tenant.business_name, skipped)
+
+    # ------------------------------------------------------------------
+    # Punto de venta — el empleado captura la venta en el mostrador
+    # ------------------------------------------------------------------
+    def create_pos_sale(
+        self,
+        tenant_id: str,
+        user_id: str,
+        payload: CreatePosSaleRequest,
+    ) -> OrderResponse:
+        """
+        Venta capturada por un empleado del negocio.
+
+        Reusa íntegro el motor del checkout —bloqueo de filas, cascada de
+        insumos y bitácora atómica— alimentándolo con la lista de artículos
+        del cuerpo en vez del carrito de Redis.
+
+        El mostrador cobra en el momento, así que el pago nace saldado.
+        """
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant is None:
+            raise StorefrontNotFoundError(tenant_id)
+
+        self._assert_offered(tenant, payload.fulfillment_type)
+
+        # Las cantidades repetidas del mismo producto se suman: el analizador
+        # bloquea cada fila una sola vez, y dos líneas sueltas del mismo
+        # artículo validarían su stock por separado y dejarían pasar de más.
+        merged: dict[str, int] = {}
+        for item in payload.items:
+            merged[item.product_id] = merged.get(item.product_id, 0) + item.quantity
+
+        cart_like = {pid: {"quantity": qty} for pid, qty in merged.items()}
+        fulfillable, unavailable = self._analyze_cart(tenant_id, cart_like)
+
+        if unavailable:
+            if payload.on_insufficient_stock != "skip":
+                self.db.rollback()
+                raise OrderStockConflictError(unavailable)
+            if not fulfillable:
+                self.db.rollback()
+                raise OrderStockConflictError(unavailable, all_skipped=True)
+
+        skipped = [
+            SkippedItemResponse(
+                product_id=u["product_id"],
+                product_name=u["product_name"],
+                reason=u["reason"],
+            )
+            for u in unavailable
+        ]
+
+        order, items_data = self._apply(
+            tenant,
+            fulfillable,
+            user_id=user_id,
+            captured_by="staff",
+            fulfillment_type=payload.fulfillment_type,
+            status="paid",
+            payment_method=payload.payment_method,
+            table_number=payload.table_number,
+            shipping_address=payload.shipping_address.model_dump() if payload.shipping_address else None,
+            customer_name=payload.customer_name,
+        )
+
+        self.db.commit()
+        logger.info(
+            "POS sale: order_id=%s tenant=%s user=%s type=%s pay=%s total=%s skipped=%d",
+            order.id, tenant_id, user_id, payload.fulfillment_type,
+            payload.payment_method, order.total, len(skipped),
+        )
+
+        return self._to_response(order, items_data, tenant.slug or "", tenant.business_name, skipped)
+
+    # ------------------------------------------------------------------
+    # Reglas de entrega del negocio
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _assert_offered(tenant: Tenant, fulfillment_type: str) -> None:
+        """
+        Un negocio solo acepta los modos de entrega que tiene habilitados.
+
+        Sin esto, un cliente podría pedir envío a una óptica que no reparte, o
+        consumo en mesa en un negocio sin local. La configuración vive en el
+        JSONB del tenant, así que no hubo que migrar nada para soportarlo.
+        """
+        if not read_fulfillment(tenant.config).get(fulfillment_type, False):
+            raise InvalidMetadataError(
+                f"Este negocio no ofrece '{fulfillment_type}' como modo de entrega"
+            )
+
+    @staticmethod
+    def _shipping_cost_for(tenant: Tenant, fulfillment_type: str, subtotal: Decimal) -> Decimal:
+        """
+        Costo de envío según la configuración del negocio.
+
+        Solo los envíos cobran: consumir en la mesa, llevárselo o recogerlo no
+        tienen costo logístico. Si el subtotal alcanza el mínimo de envío
+        gratis, el cargo se perdona.
+        """
+        if fulfillment_type != "delivery":
+            return Decimal("0.00")
+
+        cfg = read_fulfillment(tenant.config)
+        fee = Decimal(cfg.get("shipping_flat_fee") or "0.00")
+
+        free_above = cfg.get("free_shipping_above")
+        if free_above is not None and subtotal >= Decimal(free_above):
+            return Decimal("0.00")
+
+        return fee
 
     # ------------------------------------------------------------------
     # Phase 1 — analysis (row-locks every final + insumo involved)
@@ -212,7 +355,21 @@ class OrderService:
     # ------------------------------------------------------------------
     # Phase 2 — apply (decrement stock + write order). No commit here.
     # ------------------------------------------------------------------
-    def _apply(self, tenant, consumer_id: str, fulfillable: list[dict]) -> tuple[Order, list[dict]]:
+    def _apply(
+        self,
+        tenant,
+        fulfillable: list[dict],
+        *,
+        captured_by: str,
+        fulfillment_type: str,
+        status: str,
+        consumer_id: str | None = None,
+        user_id: str | None = None,
+        payment_method: str | None = None,
+        table_number: str | None = None,
+        shipping_address: dict | None = None,
+        customer_name: str | None = None,
+    ) -> tuple[Order, list[dict]]:
         total = Decimal("0.00")
         items_data: list[dict] = []
 
@@ -229,7 +386,8 @@ class OrderService:
                 quantity_change=-quantity,
                 quantity_before=before,
                 quantity_after=product.inventory_count,
-                notes="Venta B2C (producto final)",
+                user_id=user_id,
+                notes=f"Venta {'mostrador' if captured_by == 'staff' else 'en línea'} (producto final)",
             ))
 
             # Cascade: decrement each ingredient of the recipe
@@ -243,6 +401,7 @@ class OrderService:
                     quantity_change=-need,
                     quantity_before=ins_before,
                     quantity_after=insumo.inventory_count,
+                    user_id=user_id,
                     notes=f"Consumo por venta de '{product.name}'",
                 ))
 
@@ -256,12 +415,27 @@ class OrderService:
                 "subtotal": subtotal,
             })
 
+        # `total` acumuló el subtotal de los artículos; el envío se suma aparte
+        # para que el reporte pueda distinguir producto de logística.
+        subtotal = total
+        shipping_cost = self._shipping_cost_for(tenant, fulfillment_type, subtotal)
+
         order = Order(
             id=generate_id("ord", 20),
             consumer_id=consumer_id,
             tenant_id=tenant.id,
-            status="pending",
-            total=total,
+            user_id=user_id,
+            captured_by=captured_by,
+            fulfillment_type=fulfillment_type,
+            fulfillment_status="preparing",
+            status=status,
+            payment_method=payment_method,
+            subtotal=subtotal,
+            shipping_cost=shipping_cost,
+            total=subtotal + shipping_cost,
+            table_number=table_number,
+            shipping_address=shipping_address,
+            customer_name=customer_name,
         )
         self.db.add(order)
         self.db.flush()
@@ -321,17 +495,37 @@ class OrderService:
             page_size=page_size,
         )
 
-    def update_sale_status(self, tenant_id: str, order_id: str, new_status: str) -> SaleResponse:
-        """Cambia el estado de una venta del negocio autenticado."""
+    def update_sale_status(
+        self,
+        tenant_id: str,
+        order_id: str,
+        new_status: str | None = None,
+        new_fulfillment_status: str | None = None,
+    ) -> SaleResponse:
+        """
+        Mueve el estado de pago, el de entrega, o ambos.
+
+        Son ejes independientes: cobrar una mesa no la sirve, y servirla no
+        la cobra. El validador del request ya garantiza que venga al menos uno.
+        """
         order = self.repo.get_by_id_for_tenant(order_id, tenant_id)
         if order is None:
             raise OrderNotFoundError("Order not found")
 
-        order.status = new_status
+        if new_status is not None:
+            order.status = new_status
+        if new_fulfillment_status is not None:
+            order.fulfillment_status = new_fulfillment_status
+
         self.db.commit()
         self.db.refresh(order)
 
-        consumer = self.db.query(Consumer).filter(Consumer.id == order.consumer_id).first()
+        # Una venta de mostrador no tiene cliente registrado.
+        consumer = (
+            self.db.query(Consumer).filter(Consumer.id == order.consumer_id).first()
+            if order.consumer_id
+            else None
+        )
         return self._sale_to_response(order, consumer)
 
     @staticmethod
@@ -346,14 +540,31 @@ class OrderService:
             )
             for item in order.items
         ]
+
+        # Tres orígenes posibles para el nombre, en orden de preferencia: la
+        # cuenta del cliente, lo que capturó el empleado, o una etiqueta
+        # genérica. Una venta de mostrador no tiene correo que mostrar.
+        if consumer is not None:
+            display_name = (consumer.name or "").strip() or consumer.email
+            email = consumer.email
+        else:
+            display_name = (order.customer_name or "").strip() or WALK_IN_LABEL
+            email = None
+
         return SaleResponse(
             order_id=order.id,
             status=order.status,
+            fulfillment_type=order.fulfillment_type,
+            fulfillment_status=order.fulfillment_status,
+            captured_by=order.captured_by,
+            payment_method=order.payment_method,
+            subtotal=order.subtotal,
+            shipping_cost=order.shipping_cost,
             total=order.total,
             item_count=sum(i.quantity for i in items),
-            # El consumer puede no tener nombre cargado; el correo siempre está.
-            customer_name=(consumer.name or "").strip() or consumer.email,
-            customer_email=consumer.email,
+            customer_name=display_name,
+            customer_email=email,
+            table_number=order.table_number,
             items=items,
             created_at=order.created_at,
         )
@@ -374,7 +585,12 @@ class OrderService:
             slug=slug,
             business_name=business_name,
             status=order.status,
+            fulfillment_type=order.fulfillment_type,
+            fulfillment_status=order.fulfillment_status,
+            subtotal=order.subtotal,
+            shipping_cost=order.shipping_cost,
             total=order.total,
+            table_number=order.table_number,
             items=[
                 OrderItemResponse(
                     product_id=i["product_id"],
@@ -396,7 +612,12 @@ class OrderService:
             slug=order.tenant.slug or "",
             business_name=order.tenant.business_name,
             status=order.status,
+            fulfillment_type=order.fulfillment_type,
+            fulfillment_status=order.fulfillment_status,
+            subtotal=order.subtotal,
+            shipping_cost=order.shipping_cost,
             total=order.total,
+            table_number=order.table_number,
             items=[
                 OrderItemResponse(
                     product_id=item.product_id,

@@ -1,9 +1,15 @@
 """
-Order endpoints — consumer JWT required on all routes.
+Endpoints de ventas, para los dos canales del producto.
 
-POST  /api/v1/orders              → create order from cart
-GET   /api/v1/orders              → list my orders (paginated)
-GET   /api/v1/orders/{order_id}   → order detail
+Cliente (JWT de consumer):
+  POST  /api/v1/orders              → convierte el carrito en pedido
+  GET   /api/v1/orders              → mis pedidos (paginado)
+  GET   /api/v1/orders/{order_id}   → detalle
+
+Negocio (JWT de usuario):
+  POST  /api/v1/orders/business/sales                      → venta de mostrador
+  GET   /api/v1/orders/business/sales                      → reporte de ventas
+  PATCH /api/v1/orders/business/sales/{order_id}/status    → mover pago o entrega
 """
 
 from datetime import datetime
@@ -12,10 +18,17 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from core.dependencies import CurrentConsumer, get_current_consumer, get_tenant_id
+from core.dependencies import (
+    CurrentConsumer,
+    CurrentUser,
+    get_current_consumer,
+    get_current_user,
+    get_tenant_id,
+)
 from db.database import get_db
 from orders.models import (
     CreateOrderRequest,
+    CreatePosSaleRequest,
     OrderListResponse,
     OrderResponse,
     SaleResponse,
@@ -47,8 +60,33 @@ def create_order(
       - on_insufficient_stock="reject" (default) → 409 con el detalle.
       - on_insufficient_stock="skip" → crea el pedido omitiendo lo faltante.
     """
-    return OrderService(db).create_from_cart(
-        consumer.consumer_id, payload.slug, payload.on_insufficient_stock
+    return OrderService(db).create_from_cart(consumer.consumer_id, payload)
+
+
+@router.post(
+    "/business/sales",
+    response_model=OrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a counter sale from the POS (B2B)",
+)
+def create_pos_sale(
+    payload: CreatePosSaleRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OrderResponse:
+    """
+    Venta capturada por un empleado en el mostrador.
+
+    A diferencia del checkout del cliente, los artículos llegan en el cuerpo:
+    no hay carrito en Redis porque no hay cuenta de cliente detrás. El tenant
+    y el empleado salen del token, nunca del request.
+
+    Reusa el mismo motor que el checkout B2C — bloqueo de filas, descuento en
+    cascada de insumos y bitácora atómica — así que una venta de mostrador
+    mueve el inventario exactamente igual que una en línea.
+    """
+    return OrderService(db).create_pos_sale(
+        current_user.tenant_id, current_user.user_id, payload
     )
 
 
@@ -105,8 +143,15 @@ def update_sale_status(
     tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ) -> SaleResponse:
-    """Un negocio solo puede mover pedidos propios; los ajenos dan 404."""
-    return OrderService(db).update_sale_status(tenant_id, order_id, payload.status)
+    """
+    Un negocio solo puede mover pedidos propios; los ajenos dan 404.
+
+    El pago y la entrega se mueven por separado — o juntos en una llamada —
+    porque son ejes independientes: cobrar una mesa no la sirve.
+    """
+    return OrderService(db).update_sale_status(
+        tenant_id, order_id, payload.status, payload.fulfillment_status
+    )
 
 
 @router.get(
