@@ -21,6 +21,7 @@ usuario regrese a la URL de éxito: puede cerrar la pestaña, y el pago
 habría ocurrido igual.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -89,7 +90,22 @@ class BillingService:
         duplicado y parta el historial de facturación en dos.
         """
         if tenant.stripe_customer_id:
-            return tenant.stripe_customer_id
+            # Se verifica que siga existiendo en ESTE entorno de Stripe. Un id
+            # guardado puede quedar obsoleto si se cambia de cuenta o sandbox,
+            # o si alguien borra el cliente desde el panel; sin esta
+            # comprobación el cobro quedaría roto para siempre, porque el id
+            # muerto se reusaría en cada intento.
+            import stripe as stripe_sdk
+
+            try:
+                stripe.Customer.retrieve(tenant.stripe_customer_id)
+                return tenant.stripe_customer_id
+            except stripe_sdk.InvalidRequestError:
+                logger.warning(
+                    "El cliente %s ya no existe en Stripe; se creará uno nuevo para tenant=%s",
+                    tenant.stripe_customer_id, tenant.id,
+                )
+                tenant.stripe_customer_id = None
 
         customer = self._call(
             stripe.Customer.create,
@@ -117,12 +133,16 @@ class BillingService:
             raise BillingUnavailableError("Falta STRIPE_WEBHOOK_SECRET")
 
         try:
-            event = stripe.Webhook.construct_event(
-                payload, signature, settings.STRIPE_WEBHOOK_SECRET
-            )
+            stripe.Webhook.construct_event(payload, signature, settings.STRIPE_WEBHOOK_SECRET)
         except Exception as exc:
             logger.warning("Webhook con firma inválida: %s", exc)
             raise BillingUnavailableError("Firma de webhook inválida") from exc
+
+        # Se re-parsea el payload en vez de usar lo que devuelve el SDK: ese
+        # objeto es un StripeObject, no un dict, y sus anidados tampoco lo son,
+        # así que `.get()` sobre ellos revienta. La firma ya quedó verificada
+        # sobre estos mismos bytes, de modo que parsearlos es seguro.
+        event = json.loads(payload)
 
         # Stripe reintenta hasta recibir un 2xx y puede repetir un evento.
         # Registrarlo primero vuelve idempotente todo lo que sigue.
