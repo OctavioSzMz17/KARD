@@ -65,7 +65,8 @@ class BillingService:
 
         customer_id = self._ensure_customer(stripe, tenant)
 
-        session = stripe.checkout.Session.create(
+        session = self._call(
+            stripe.checkout.Session.create,
             mode="subscription",
             customer=customer_id,
             line_items=[{"price": price_id, "quantity": 1}],
@@ -90,7 +91,8 @@ class BillingService:
         if tenant.stripe_customer_id:
             return tenant.stripe_customer_id
 
-        customer = stripe.Customer.create(
+        customer = self._call(
+            stripe.Customer.create,
             email=tenant.email,
             name=tenant.business_name,
             metadata={"tenant_id": tenant.id},
@@ -225,6 +227,31 @@ class BillingService:
 
         stripe_sdk.api_key = settings.STRIPE_SECRET_KEY
         return stripe_sdk
+
+    @staticmethod
+    def _call(fn, *args, **kwargs):
+        """
+        Ejecuta una llamada al SDK traduciendo sus fallos a un error de dominio.
+
+        Sin esto, cualquier problema con Stripe —una clave inválida, su API
+        caída, un límite de tasa— sale como 500 sin pasar por los handlers, y
+        el navegador solo ve una petición que murió sin explicación.
+        """
+        import stripe as stripe_sdk
+
+        try:
+            return fn(*args, **kwargs)
+        except stripe_sdk.AuthenticationError as exc:
+            logger.error("Clave de Stripe inválida: %s", exc)
+            raise BillingUnavailableError(
+                "Las claves de Stripe no son válidas. Revisa STRIPE_SECRET_KEY en el .env"
+            ) from exc
+        except stripe_sdk.InvalidRequestError as exc:
+            logger.error("Petición inválida a Stripe: %s", exc)
+            raise BillingUnavailableError(f"Stripe rechazó la solicitud: {exc.user_message or exc}") from exc
+        except stripe_sdk.StripeError as exc:
+            logger.error("Fallo de Stripe: %s", exc)
+            raise BillingUnavailableError("Stripe no está disponible en este momento") from exc
 
     def _require_tenant(self, tenant_id: str) -> Tenant:
         tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
