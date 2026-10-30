@@ -97,18 +97,29 @@ class TestEventoRepetido:
     duplicarse o revertirse.
     """
 
-    def _service_con_stripe_falso(self, monkeypatch, db, evento):
+    def _service_con_stripe_falso(self, monkeypatch, db):
+        """
+        El doble solo valida la firma; el evento se lee del payload, igual que
+        en producción. Antes devolvía un dict desde construct_event y eso
+        ocultó un fallo real: Stripe entrega un StripeObject, no un dict.
+        """
         from billing import service as mod
 
         class FakeWebhook:
             @staticmethod
             def construct_event(payload, sig, secret):
-                return evento
+                return None   # el servicio ignora el retorno a propósito
 
         monkeypatch.setattr(mod.BillingService, "_stripe",
                             staticmethod(lambda: SimpleNamespace(Webhook=FakeWebhook)))
         monkeypatch.setattr(mod.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test", raising=False)
         return mod.BillingService(db)
+
+    @staticmethod
+    def _bytes(evento: dict) -> bytes:
+        """Los mismos bytes que Stripe enviaría y sobre los que firma."""
+        import json
+        return json.dumps(evento).encode()
 
     def test_el_primero_se_aplica(self, monkeypatch):
         tenant = tenant_demo()
@@ -121,9 +132,9 @@ class TestEventoRepetido:
                 "current_period_end": 1800000000,
             }},
         }
-        svc = self._service_con_stripe_falso(monkeypatch, db, evento)
+        svc = self._service_con_stripe_falso(monkeypatch, db)
 
-        r = svc.handle_webhook(b"{}", "firma")
+        r = svc.handle_webhook(self._bytes(evento), "firma")
 
         assert r["received"] is True
         assert r.get("duplicate") is not True
@@ -138,9 +149,9 @@ class TestEventoRepetido:
             "data": {"object": {"id": "sub_1", "customer": "cus_1",
                                 "metadata": {"tenant_id": "t_aaa"}}},
         }
-        svc = self._service_con_stripe_falso(monkeypatch, db, evento)
+        svc = self._service_con_stripe_falso(monkeypatch, db)
 
-        r = svc.handle_webhook(b"{}", "firma")
+        r = svc.handle_webhook(self._bytes(evento), "firma")
 
         assert r["duplicate"] is True
         # El estado NO cambió aunque el evento era de cancelación.
