@@ -189,7 +189,7 @@ class BillingService:
         tenant.subscription_status = sub["status"]
         tenant.plan = self._plan_from(sub) or tenant.plan
 
-        period_end = sub.get("current_period_end")
+        period_end = self._period_end(sub)
         if period_end:
             tenant.current_period_end = datetime.fromtimestamp(period_end, tz=timezone.utc)
 
@@ -301,6 +301,25 @@ class BillingService:
 
         logger.warning("Evento de Stripe sin negocio identificable: %s", obj.get("id"))
         return None
+
+    @staticmethod
+    def _period_end(sub: dict) -> Optional[int]:
+        """
+        Fin del periodo pagado, como timestamp.
+
+        A partir de la versión 2026-09-30 de la API, Stripe dejó de mandar
+        `current_period_end` en la suscripción y lo movió a cada línea. Se
+        leen ambos sitios para que el dato no se pierda según la versión que
+        tenga configurada la cuenta.
+        """
+        if sub.get("current_period_end"):
+            return sub["current_period_end"]
+
+        items = (sub.get("items") or {}).get("data") or []
+        fechas = [i["current_period_end"] for i in items if i.get("current_period_end")]
+        # Con varias líneas, manda la que se renueva primero: es cuando el
+        # negocio vuelve a necesitar un cobro exitoso.
+        return min(fechas) if fechas else None
 
     @staticmethod
     def _plan_from(sub: dict) -> Optional[str]:
