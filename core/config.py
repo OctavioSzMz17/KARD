@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     # CORS - comma-separated list of allowed origins
     CORS_ORIGINS: str
 
+    # Stripe — suscripciones de los negocios hacia KARD.
+    # Dejar vacío desactiva el cobro: los endpoints responden 503 en vez de
+    # tronar, para que el resto de la plataforma siga funcionando sin claves.
+    STRIPE_SECRET_KEY: str = ""
+    # Firma de los webhooks (`whsec_...`). En local lo imprime `stripe listen`.
+    STRIPE_WEBHOOK_SECRET: str = ""
+    # Precios de cada plan, creados en el panel de Stripe (`price_...`).
+    STRIPE_PRICE_STARTER: str = ""
+    STRIPE_PRICE_PRO: str = ""
+    STRIPE_PRICE_ENTERPRISE: str = ""
+
     # Resend — transactional email (leave empty to disable email sending)
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = ""
@@ -45,6 +56,20 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @property
+    def stripe_price_by_plan(self) -> dict[str, str]:
+        """Plan → price de Stripe. Un plan sin precio configurado no se vende."""
+        return {
+            "starter": self.STRIPE_PRICE_STARTER,
+            "pro": self.STRIPE_PRICE_PRO,
+            "enterprise": self.STRIPE_PRICE_ENTERPRISE,
+        }
+
+    @property
+    def billing_enabled(self) -> bool:
+        """Sin clave secreta no hay cobro posible; los endpoints lo dicen claro."""
+        return bool(self.STRIPE_SECRET_KEY)
 
     @property
     def cors_origins_list(self) -> list[str]:

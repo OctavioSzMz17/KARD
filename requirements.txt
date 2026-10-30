@@ -18,6 +18,7 @@ pydantic[email]
 jsonschema
 redis
 resend
+stripe
 pytest
 pytest-asyncio
 httpx

@@ -14,6 +14,7 @@ from auth.routes import router as auth_router
 from core.config import settings
 from core.exceptions import (
     AccountLockedError,
+    BillingUnavailableError,
     CartEmptyError,
     CartUnavailableError,
     ConsumerAlreadyExistsError,
@@ -146,6 +147,17 @@ async def image_not_found_exception_handler(request: Request, exc: ImageNotFound
 async def storefront_not_found_exception_handler(request: Request, exc: StorefrontNotFoundError):
     """Slug not found, tenant not public, or tenant inactive → 404 (indistinguishable by design)."""
     return JSONResponse(status_code=404, content=_error("Storefront not found"))
+
+
+@app.exception_handler(BillingUnavailableError)
+async def billing_unavailable_exception_handler(request: Request, exc: BillingUnavailableError):
+    """
+    Falta configuración de Stripe o la firma del webhook no es válida → 503.
+
+    No es 400: la petición puede ser correcta y aun así no haber manera de
+    cobrar, así que el problema es del servicio, no de quien llama.
+    """
+    return JSONResponse(status_code=503, content=_error(str(exc)))
 
 
 @app.exception_handler(PlanLimitExceededError)

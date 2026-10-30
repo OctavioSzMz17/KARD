@@ -1,30 +1,35 @@
-"""
-Pydantic schemas for the billing module.
-
-NOT IMPLEMENTED — skeleton only. Stripe integration is deferred.
-"""
+"""Esquemas del módulo de suscripciones."""
 
 from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+Plan = Literal["starter", "pro", "enterprise"]
+
 
 class CheckoutRequest(BaseModel):
-    """Payload for POST /api/v1/billing/checkout."""
+    """Payload de POST /api/v1/billing/checkout."""
 
-    plan: Literal["starter", "pro", "enterprise"]
+    plan: Plan
 
 
 class CheckoutResponse(BaseModel):
-    """Returned by POST /api/v1/billing/checkout — contains the Stripe Checkout URL."""
+    """URL de Stripe a la que hay que redirigir al negocio para que pague."""
 
     checkout_url: str
     plan: str
 
 
 class PlanInfo(BaseModel):
-    """Current subscription state for the authenticated tenant."""
+    """
+    Estado de la suscripción del negocio autenticado.
 
-    plan: str
+    `has_access` resume en un booleano lo que el frontend necesita decidir —
+    si deja entrar o muestra la pantalla de contratar— sin tener que conocer
+    la lista de estados de Stripe.
+    """
+
+    plan: Optional[str] = None
     subscription_status: str
-    trial_ends_at: Optional[str] = None
+    current_period_end: Optional[str] = None
+    has_access: bool

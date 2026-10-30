@@ -113,3 +113,13 @@ class OrderStockConflictError(Exception):
         self.unavailable = unavailable
         self.all_skipped = all_skipped
         super().__init__("insufficient stock for one or more items")
+
+
+class BillingUnavailableError(Exception):
+    """
+    El cobro no se puede ejecutar: faltan claves de Stripe, el plan no tiene
+    precio configurado, o la firma del webhook no es válida.
+
+    Es distinto de un error del negocio: aquí la petición puede ser correcta
+    y aun así no haber manera de cobrar, así que se responde 503 y no 400.
+    """

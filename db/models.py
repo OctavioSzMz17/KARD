@@ -67,6 +67,16 @@ class Tenant(Base):
     slug = Column(String(60), unique=True, nullable=True)
     is_public = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+
+    # ── Suscripción (migración 006) ───────────────────────────────────
+    # Stripe es la fuente de verdad del cobro; aquí solo se guarda lo
+    # mínimo para reconocer al negocio y decidir si tiene acceso sin
+    # llamar a su API en cada request.
+    stripe_customer_id = Column(String(60), nullable=True)
+    stripe_subscription_id = Column(String(60), nullable=True)
+    subscription_status = Column(String(30), nullable=False, default="none")
+    plan = Column(String(20), nullable=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -356,3 +366,23 @@ class ProductRecipe(Base):
             f"<ProductRecipe final={self.final_product_id!r} "
             f"insumo={self.insumo_product_id!r} qty={self.quantity}>"
         )
+
+
+class StripeEvent(Base):
+    """
+    Evento de Stripe ya aplicado.
+
+    Stripe reintenta un webhook hasta recibir un 2xx y puede entregar el
+    mismo evento más de una vez. Registrar su id antes de actuar vuelve
+    idempotente el procesamiento: el reintento se reconoce y se ignora en
+    lugar de volver a aplicar el cambio.
+    """
+
+    __tablename__ = "stripe_events"
+
+    id = Column(String(80), primary_key=True)          # evt_... tal cual lo manda Stripe
+    type = Column(String(80), nullable=False)
+    processed_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<StripeEvent id={self.id!r} type={self.type!r}>"
