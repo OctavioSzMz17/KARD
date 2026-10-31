@@ -12,6 +12,7 @@ suscripciones mandando un POST.
 """
 
 from fastapi import APIRouter, Depends, Request, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from billing.models import CheckoutRequest, CheckoutResponse, PlanInfo
@@ -73,4 +74,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dic
     """
     payload = await request.body()
     signature = request.headers.get("stripe-signature", "")
-    return BillingService(db).handle_webhook(payload, signature)
+    # El trabajo de base de datos es síncrono: en un hilo, para no congelar el
+    # bucle de eventos (y con él a las demás peticiones) mientras Neon responde.
+    return await run_in_threadpool(BillingService(db).handle_webhook, payload, signature)

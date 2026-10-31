@@ -111,7 +111,7 @@ class ProductService:
             product_type=product_type,
         )
         return ProductListResponse(
-            items=[self._to_response(p) for p in items],
+            items=self._to_responses(items, current_user.tenant_id),
             total=total,
             page=page,
             page_size=page_size,
@@ -224,7 +224,7 @@ class ProductService:
     def get_low_stock(self, current_user: CurrentUser) -> list[ProductResponse]:
         """Products whose `inventory_count` has fallen below their own `low_stock_threshold`."""
         items = self.products.get_low_stock(current_user.tenant_id)
-        return [self._to_response(p) for p in items]
+        return self._to_responses(items, current_user.tenant_id)
 
     # ------------------------------------------------------------------
     # Internals
@@ -319,9 +319,21 @@ class ProductService:
             "is_deleted": product.is_deleted,
         }
 
-    def _to_response(self, product: Product) -> ProductResponse:
+    def _to_responses(self, products: list[Product], tenant_id: str) -> list[ProductResponse]:
+        """
+        Varios productos con sus imágenes en UNA consulta.
+
+        Pedirlas producto por producto eran N consultas a la base por cada
+        listado (20 productos = 20 viajes a Neon, más de un segundo solo en
+        imágenes).
+        """
+        images = self.image_repo.list_for_owners(tenant_id, "product", [p.id for p in products])
+        return [self._to_response(p, images.get(p.id, [])) for p in products]
+
+    def _to_response(self, product: Product, raw_images=None) -> ProductResponse:
         from images.models import ImageResponse
-        raw_images = self.image_repo.list_for_owner(product.tenant_id, "product", product.id)
+        if raw_images is None:   # un solo producto (detalle, crear, editar): una consulta basta
+            raw_images = self.image_repo.list_for_owner(product.tenant_id, "product", product.id)
         images = [
             ImageResponse(
                 image_id=img.id,

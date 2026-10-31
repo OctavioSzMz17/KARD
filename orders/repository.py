@@ -142,40 +142,30 @@ class OrderRepository:
 
         Canceled orders are counted separately and excluded from revenue.
         """
-        counts = self._sales_query(tenant_id, date_from, date_to, status, search)
-        order_count = counts.with_entities(func.count(Order.id)).scalar() or 0
-
-        canceled_count = (
+        # Cuatro de los totales salen de UNA consulta con agregados condicionales
+        # (`FILTER`): antes eran cuatro consultas separadas sobre el mismo
+        # conjunto, y cada una cuesta un viaje a la base.
+        no_cancelada = Order.status != "canceled"
+        order_count, canceled_count, revenue, shipping = (
             self._sales_query(tenant_id, date_from, date_to, status, search)
-            .filter(Order.status == "canceled")
-            .with_entities(func.count(Order.id))
-            .scalar()
-            or 0
+            .with_entities(
+                func.count(Order.id),
+                func.count(Order.id).filter(Order.status == "canceled"),
+                func.coalesce(func.sum(Order.total).filter(no_cancelada), 0),
+                # Cuánto del ingreso fue logística y no catálogo. El reporte lo
+                # resta para no presentar el envío como venta de producto.
+                func.coalesce(func.sum(Order.shipping_cost).filter(no_cancelada), 0),
+            )
+            .one()
         )
 
-        revenue = (
-            self._sales_query(tenant_id, date_from, date_to, status, search)
-            .filter(Order.status != "canceled")
-            .with_entities(func.coalesce(func.sum(Order.total), 0))
-            .scalar()
-            or 0
-        )
-
+        # Las unidades necesitan unir con las partidas, lo que multiplicaría
+        # las filas de los agregados de arriba: se quedan en su propia consulta.
         units = (
             self._sales_query(tenant_id, date_from, date_to, status, search)
-            .filter(Order.status != "canceled")
+            .filter(no_cancelada)
             .join(OrderItem, OrderItem.order_id == Order.id)
             .with_entities(func.coalesce(func.sum(OrderItem.quantity), 0))
-            .scalar()
-            or 0
-        )
-
-        # Cuánto del ingreso fue logística y no catálogo. El reporte lo resta
-        # para no presentar el envío como venta de producto.
-        shipping = (
-            self._sales_query(tenant_id, date_from, date_to, status, search)
-            .filter(Order.status != "canceled")
-            .with_entities(func.coalesce(func.sum(Order.shipping_cost), 0))
             .scalar()
             or 0
         )

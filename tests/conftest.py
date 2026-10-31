@@ -61,6 +61,10 @@ class FakeProductRepository:
     def create(self, product):
         self._products.append(product)
 
+    def list_products(self, tenant_id, page, page_size, search=None, product_type=None):
+        items = [p for p in self._products if p.tenant_id == tenant_id and not p.is_deleted]
+        return items, len(items)
+
 
 class FakeInventoryRepository:
     """Acumula las transacciones de inventario que el servicio intenta escribir."""
@@ -73,11 +77,19 @@ class FakeInventoryRepository:
 
 
 class FakeImageRepository:
+    """Cuenta cuántas consultas de imágenes se hacen, para vigilar el N+1."""
+
     def __init__(self):
-        pass
+        self.single_calls = 0
+        self.batch_calls = 0
 
     def list_for_owner(self, *args, **kwargs):
+        self.single_calls += 1
         return []
+
+    def list_for_owners(self, tenant_id, owner_type, owner_ids):
+        self.batch_calls += 1
+        return {oid: [] for oid in owner_ids}
 
     def list_for_product(self, *args, **kwargs):
         return []

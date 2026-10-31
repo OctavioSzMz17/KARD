@@ -183,3 +183,52 @@ class TestStockNoNegativo:
             svc.sell_product("p_001", StockChangeRequest(quantity=1), tenant_b_user)
 
         assert producto_de_a.inventory_count == 100
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PS-16 · El listado no hace una consulta de imágenes por producto
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestListadoSinNMasUno:
+    """
+    Listar 20 productos hacía 20 consultas de imágenes (una por producto), más
+    de un segundo de ida y vuelta a la base. Debe ser una sola, sin importar
+    cuántos productos haya en la página.
+    """
+
+    def _productos(self, n):
+        return [make_product(f"p_{i}", "t_aaa", name=f"Producto {i}") for i in range(n)]
+
+    def test_veinte_productos_piden_las_imagenes_en_una_consulta(self, service_factory, tenant_a_user):
+        svc = service_factory(self._productos(20))
+
+        r = svc.list_products(tenant_a_user, page=1, page_size=20)
+
+        assert len(r.items) == 20
+        assert svc.image_repo.batch_calls == 1
+        assert svc.image_repo.single_calls == 0
+
+    def test_el_costo_no_crece_con_la_pagina(self, service_factory, tenant_a_user):
+        chico = service_factory(self._productos(2))
+        grande = service_factory(self._productos(50))
+
+        chico.list_products(tenant_a_user, page=1, page_size=50)
+        grande.list_products(tenant_a_user, page=1, page_size=50)
+
+        assert chico.image_repo.batch_calls == grande.image_repo.batch_calls == 1
+
+    def test_el_detalle_de_un_producto_sigue_usando_una_consulta_individual(self, service_factory, tenant_a_user):
+        svc = service_factory(self._productos(1))
+
+        svc.get_product("p_0", tenant_a_user)
+
+        assert svc.image_repo.single_calls == 1
+        assert svc.image_repo.batch_calls == 0
+
+    def test_una_pagina_vacia_no_rompe(self, service_factory, tenant_a_user):
+        svc = service_factory([])
+
+        r = svc.list_products(tenant_a_user, page=1, page_size=20)
+
+        assert r.items == [] and r.total == 0

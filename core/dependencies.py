@@ -51,7 +51,13 @@ class CurrentUser(BaseModel):
     email: str
 
 
-async def get_current_user(
+# Estas dependencias son `def`, NO `async def`, a propósito: por dentro consultan
+# Redis y la base de datos de forma síncrona, y una `async def` corre directo en
+# el bucle de eventos, así que mientras esperaba a la base (cientos de ms en
+# Neon) congelaba a TODAS las demás peticiones, incluidas las que están en
+# caché y deberían tardar 10 ms. Como `def`, FastAPI las ejecuta en un hilo y
+# el bucle sigue atendiendo al resto.
+def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> CurrentUser:
@@ -130,7 +136,7 @@ def get_user_id(current_user: CurrentUser = Depends(get_current_user)) -> str:
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
-async def get_optional_current_user(
+def get_optional_current_user(
     token: str | None = Depends(oauth2_scheme_optional),
     db: Session = Depends(get_db),
 ) -> Optional[CurrentUser]:
@@ -144,7 +150,7 @@ async def get_optional_current_user(
     """
     if token is None:
         return None
-    return await get_current_user(token=token, db=db)
+    return get_current_user(token=token, db=db)
 
 
 class CurrentConsumer(BaseModel):
@@ -159,7 +165,7 @@ class CurrentConsumer(BaseModel):
     email: str
 
 
-async def get_current_consumer(
+def get_current_consumer(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> CurrentConsumer:
