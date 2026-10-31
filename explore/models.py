@@ -27,6 +27,9 @@ class ExploreStoreItem(BaseModel):
     business_name: str
     business_type: str
     logo_url: Optional[str] = None
+    # Portada de la tarjeta: el logo es un logotipo (suele traer texto) y recortado
+    # como foto se ve mal; el banner sí es una imagen pensada para cubrir.
+    banner_url: Optional[str] = None
     tagline: Optional[str] = None
 
 

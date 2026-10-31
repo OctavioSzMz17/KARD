@@ -41,16 +41,22 @@ class ExploreService:
         )
         return ExploreResponse(
             items=[
-                ExploreStoreItem(
-                    slug=t.slug,
-                    business_name=t.business_name,
-                    business_type=t.business_type,
-                    logo_url=read_branding(t.config)["logo_url"],
-                    tagline=read_profile(t.config)["tagline"],
-                )
+                self._to_item(t)
                 for t in items
             ],
             total=total,
             page=page,
             page_size=page_size,
+        )
+
+    @staticmethod
+    def _to_item(tenant) -> ExploreStoreItem:
+        branding = read_branding(tenant.config)
+        return ExploreStoreItem(
+            slug=tenant.slug,
+            business_name=tenant.business_name,
+            business_type=tenant.business_type,
+            logo_url=branding["logo_url"],
+            banner_url=branding["banner_url"],
+            tagline=read_profile(tenant.config)["tagline"],
         )
