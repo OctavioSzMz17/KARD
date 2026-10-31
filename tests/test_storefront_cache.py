@@ -21,7 +21,7 @@ from starlette.responses import Response
 
 from core.exceptions import StorefrontNotFoundError
 from core.redis_client import invalidate_storefront_cache, storefront_info_key, storefront_tenant_key
-from storefront.routes import PUBLIC_CACHE_CONTROL, _with_http_cache
+from core.http_cache import PUBLIC_CACHE_CONTROL, with_http_cache as _with_http_cache
 from storefront.service import StorefrontService
 from tests.conftest import FakeSession
 

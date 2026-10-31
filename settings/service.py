@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from auth.repository import TenantRepository
 from core.dependencies import CurrentUser
 from core.exceptions import TenantNotFoundError
-from core.redis_client import invalidate_storefront_cache
+from core.redis_client import invalidate_explore_cache, invalidate_storefront_cache
 from core.tenant_config import merge_config_key, read_branding, read_fulfillment, read_profile
 from settings.models import (
     BrandingResponse,
@@ -152,6 +152,8 @@ class SettingsService:
         self.db.commit()
         if tenant.slug:
             invalidate_storefront_cache(tenant.slug)
+        # Logo, banner y eslogan también se ven en explorar (global).
+        invalidate_explore_cache()
 
     @staticmethod
     def _branding_response(branding: dict) -> BrandingResponse:

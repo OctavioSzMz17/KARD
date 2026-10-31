@@ -10,42 +10,17 @@ headers: a browser (or a CDN) can reuse them for a minute without asking,
 and afterwards revalidate with `If-None-Match` for a body-less 304.
 """
 
-import hashlib
-from typing import Optional, Union
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from core.http_cache import with_http_cache
 from db.database import get_db
 from storefront.models import StorefrontProductListResponse, StorefrontProductResponse, StorefrontTenantResponse
 from storefront.service import StorefrontService
 
 router = APIRouter()
-
-# `public`: nothing here depends on who asks. `stale-while-revalidate` lets
-# the browser show the old copy instantly while it refreshes it in the
-# background, so a visitor never waits on a revalidation.
-PUBLIC_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300"
-
-
-def _with_http_cache(request: Request, response: Response, model: BaseModel) -> Union[BaseModel, Response]:
-    """
-    Attach `ETag` + `Cache-Control`, or answer 304 when the client's copy is current.
-
-    The ETag is a hash of the serialized response, so it changes exactly
-    when the content does — including after a Redis invalidation that
-    rebuilds identical data (same hash, still a 304).
-    """
-    etag = 'W/"' + hashlib.sha1(model.model_dump_json().encode("utf-8")).hexdigest()[:24] + '"'
-    headers = {"ETag": etag, "Cache-Control": PUBLIC_CACHE_CONTROL}
-
-    sent = [t.strip() for t in request.headers.get("if-none-match", "").split(",") if t.strip()]
-    if etag in sent or "*" in sent:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-
-    response.headers.update(headers)
-    return model
 
 
 @router.get(
@@ -61,7 +36,7 @@ def get_storefront(
     db: Session = Depends(get_db),
 ):
     info = StorefrontService(db, background_tasks).get_storefront(slug)
-    return _with_http_cache(request, response, info)
+    return with_http_cache(request, response, info)
 
 
 @router.get(
@@ -80,7 +55,7 @@ def list_products(
     db: Session = Depends(get_db),
 ):
     catalog = StorefrontService(db, background_tasks).list_products(slug, page, page_size, search)
-    return _with_http_cache(request, response, catalog)
+    return with_http_cache(request, response, catalog)
 
 
 @router.get(
@@ -97,4 +72,4 @@ def get_product(
     db: Session = Depends(get_db),
 ):
     product = StorefrontService(db, background_tasks).get_product(slug, product_id)
-    return _with_http_cache(request, response, product)
+    return with_http_cache(request, response, product)

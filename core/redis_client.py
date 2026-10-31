@@ -96,6 +96,43 @@ def storefront_info_key(slug: str) -> str:
     return f"storefront:info:{slug}"
 
 
+# Explorar (listado de negocios y categorías) es global, no de un negocio: sus
+# claves cuelgan de `explore:` y cualquier cambio visible en un negocio las vacía
+# todas (son pocas y se reconstruyen con una consulta).
+EXPLORE_CACHE_TTL = 300  # 5 minutes
+
+
+def explore_categories_key() -> str:
+    return "explore:categories"
+
+
+def explore_list_key(category: Optional[str], page: int, page_size: int) -> str:
+    return f"explore:list:{category or '-'}:{page}:{page_size}"
+
+
+def invalidate_explore_cache() -> None:
+    """
+    Vacía el listado y las categorías de explorar.
+
+    Se llama cuando un negocio cambia algo que ahí se ve (logo, banner,
+    eslogan). Falla en silencio: la caché es una optimización, no un requisito
+    de corrección, y de todos modos caduca sola a los 5 minutos.
+    """
+    redis_client = get_redis()
+    if redis_client is None:
+        return
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = redis_client.scan(cursor, match="explore:*", count=100)
+            if keys:
+                redis_client.delete(*keys)
+            if cursor == 0:
+                break
+    except Exception:
+        logger.warning("Failed to invalidate explore cache", exc_info=True)
+
+
 def invalidate_storefront_cache(slug: str) -> None:
     """
     Delete everything cached for a storefront slug: the slug→tenant
