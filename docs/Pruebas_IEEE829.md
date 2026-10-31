@@ -138,6 +138,19 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las seis combinaciones se comportan según lo esperado |
 | **Dependencias** | Ninguna |
 
+### PC-05 · Catálogo de negocios (explorar)
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-05` |
+| **Elemento** | `ExploreComponent` |
+| **Requisito cubierto** | Descubrimiento: el cliente encuentra un negocio y entra a su tienda |
+| **Prioridad** | Media |
+| **Entradas** | Listado con y sin banner/logo/eslogan; filtro por categoría y "Todos"; búsqueda escrita en ráfaga; error de red; cursor sobre una tarjeta con y sin "reducir movimiento" |
+| **Resultado esperado** | Cada negocio es un enlace real a `/s/{slug}`. Un negocio sin banner usa el ícono de su giro y sin logo muestra su inicial. Elegir una categoría pide solo esa y "Todos" la quita. La búsqueda espera 300 ms y manda una sola petición con lo último escrito. Un fallo de carga se avisa. La tarjeta se inclina hacia el cursor salvo que el sistema pida reducir el movimiento |
+| **Criterio de aprobación** | Las once verificaciones pasan; en particular, la de "reducir movimiento" falla si se quita su protección |
+| **Dependencias** | Ninguna |
+
 ---
 
 ## 3. Procedimiento de Pruebas (Test Procedure)
@@ -174,7 +187,8 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
 | PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
-| **TOTAL** | **46** | **6 de 6 aprobados** | |
+| PC-05 · ExploreComponent | 11 | ✅ Aprobado | — |
+| **TOTAL** | **57** | **7 de 7 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
