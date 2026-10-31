@@ -84,18 +84,33 @@ def get_redis() -> Optional[redis.Redis]:
 STOREFRONT_CACHE_TTL = 300  # 5 minutes
 
 
+# Tres capas por negocio, todas bajo el mismo slug para invalidarlas juntas:
+#   tenant  slug -> tenant_id         (evita la consulta que resuelve el negocio)
+#   info    respuesta pública completa del negocio
+#   catalog páginas del catálogo (una clave por página/tamaño/búsqueda)
+def storefront_tenant_key(slug: str) -> str:
+    return f"storefront:tenant:{slug}"
+
+
+def storefront_info_key(slug: str) -> str:
+    return f"storefront:info:{slug}"
+
+
 def invalidate_storefront_cache(slug: str) -> None:
     """
-    Delete all cached catalog pages for a storefront slug.
+    Delete everything cached for a storefront slug: the slug→tenant
+    mapping, the public business info and every catalog page.
 
-    Called from `products/service.py` after any product mutation so the
-    next request re-reads from the DB. Fails silently — the cache is an
-    optimization, not a correctness requirement.
+    Called after any change that a visitor could see (products, images,
+    branding, profile, fulfillment) so the next request re-reads from the
+    DB. Fails silently — the cache is an optimization, not a correctness
+    requirement.
     """
     redis_client = get_redis()
     if redis_client is None:
         return
     try:
+        redis_client.delete(storefront_tenant_key(slug), storefront_info_key(slug))
         pattern = f"storefront:catalog:{slug}:*"
         cursor = 0
         deleted = 0

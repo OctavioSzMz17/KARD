@@ -20,7 +20,8 @@ from sqlalchemy.orm import Session
 from audit_logging.audit import log_operation
 from core.dependencies import CurrentUser
 from core.exceptions import ImageNotFoundError, ProductNotFoundError
-from db.models import Image
+from core.redis_client import invalidate_storefront_cache
+from db.models import Image, Tenant
 from images.models import ImageCreate, ImageResponse, ImageUpdate
 from images.repository import ImageRepository
 from products.repository import ProductRepository
@@ -60,6 +61,7 @@ class ImageService:
         )
         self.images.create(image)
         self.db.commit()
+        self._bust_storefront_cache(current_user.tenant_id)
 
         log_operation(
             tenant_id=current_user.tenant_id,
@@ -101,6 +103,7 @@ class ImageService:
 
         self.images.save(image)
         self.db.commit()
+        self._bust_storefront_cache(current_user.tenant_id)
 
         log_operation(
             tenant_id=current_user.tenant_id,
@@ -122,6 +125,7 @@ class ImageService:
 
         self.images.delete(image)
         self.db.commit()
+        self._bust_storefront_cache(current_user.tenant_id)
 
         log_operation(
             tenant_id=current_user.tenant_id,
@@ -134,6 +138,12 @@ class ImageService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _bust_storefront_cache(self, tenant_id: str) -> None:
+        """The public catalog embeds product images, so changing one must empty its cache."""
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant and tenant.slug:
+            invalidate_storefront_cache(tenant.slug)
 
     def _require_product(self, product_id: str, tenant_id: str) -> None:
         """

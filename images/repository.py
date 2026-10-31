@@ -37,6 +37,34 @@ class ImageRepository:
             .all()
         )
 
+    def list_for_owners(
+        self, tenant_id: str, owner_type: str, owner_ids: list[str]
+    ) -> dict[str, list[Image]]:
+        """
+        Images for many owners in ONE query, grouped by owner and ordered
+        like `list_for_owner`.
+
+        The public catalog renders dozens of products per page; asking for
+        each one's images separately cost one database round trip per
+        product.
+        """
+        grouped: dict[str, list[Image]] = {owner_id: [] for owner_id in owner_ids}
+        if not owner_ids:
+            return grouped
+        rows = (
+            self.db.query(Image)
+            .filter(
+                Image.tenant_id == tenant_id,
+                Image.owner_type == owner_type,
+                Image.owner_id.in_(owner_ids),
+            )
+            .order_by(Image.sort_order.asc(), Image.created_at.asc())
+            .all()
+        )
+        for image in rows:
+            grouped[image.owner_id].append(image)
+        return grouped
+
     def get_by_id(self, tenant_id: str, image_id: str) -> Optional[Image]:
         """
         Fetch a single image by id, scoped to the caller's tenant.

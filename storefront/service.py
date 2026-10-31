@@ -12,10 +12,16 @@ Three invariants this service enforces:
 import logging
 from typing import Optional
 
+from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from core.exceptions import StorefrontNotFoundError
-from core.redis_client import STOREFRONT_CACHE_TTL, get_redis
+from core.redis_client import (
+    STOREFRONT_CACHE_TTL,
+    get_redis,
+    storefront_info_key,
+    storefront_tenant_key,
+)
 from core.tenant_config import read_branding, read_fulfillment, read_profile
 from images.repository import ImageRepository
 from storefront.models import (
@@ -29,7 +35,7 @@ from storefront.models import (
     StorefrontTenantResponse,
     StorefrontTheme,
 )
-from storefront.repository import StorefrontRepository
+from storefront.repository import StorefrontRepository, record_event_detached
 
 logger = logging.getLogger("kard.storefront")
 
@@ -37,27 +43,50 @@ PRODUCT_TYPE_PUBLIC = "final"
 
 
 class StorefrontService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, tasks: Optional[BackgroundTasks] = None):
         self.db = db
         self.repo = StorefrontRepository(db)
         self.image_repo = ImageRepository(db)
+        # Sin `tasks` (otros llamadores, pruebas) los eventos se escriben en
+        # línea, como antes; con `tasks` se registran tras responder.
+        self.tasks = tasks
 
     # ------------------------------------------------------------------
     # Public endpoints
     # ------------------------------------------------------------------
 
     def get_storefront(self, slug: str) -> StorefrontTenantResponse:
-        """Return public business info for the given slug."""
-        tenant = self._require_public_tenant(slug)
+        """
+        Return public business info for the given slug.
 
-        self.repo.record_event(tenant.id, "view_storefront", {"slug": slug})
-        self.db.commit()
+        Served from Redis when possible: the business info only changes when
+        its owner edits branding/profile/fulfillment, and every one of those
+        edits invalidates this key.
+        """
+        redis_client = get_redis()
+        info_key = storefront_info_key(slug)
+
+        if redis_client is not None:
+            try:
+                cached = redis_client.get(info_key)
+                if cached:
+                    response = StorefrontTenantResponse.model_validate_json(cached)
+                    tenant_id = self._cached_tenant_id(redis_client, slug)
+                    if tenant_id:
+                        self._track(tenant_id, "view_storefront", {"slug": slug})
+                        return response
+            except Exception:
+                logger.warning("Redis read failed for key=%s; falling through to DB", info_key, exc_info=True)
+
+        tenant = self._require_public_tenant(slug)
+        self._remember_tenant_id(redis_client, slug, tenant.id)
+        self._track(tenant.id, "view_storefront", {"slug": slug})
 
         branding = read_branding(tenant.config)
         theme = branding["theme"]
         profile = read_profile(tenant.config)
 
-        return StorefrontTenantResponse(
+        response = StorefrontTenantResponse(
             slug=tenant.slug,
             business_name=tenant.business_name,
             business_type=tenant.business_type,
@@ -69,6 +98,14 @@ class StorefrontService:
             contact=self._to_public_contact(profile["contact"]),
             fulfillment=StorefrontFulfillment(**read_fulfillment(tenant.config)),
         )
+
+        if redis_client is not None:
+            try:
+                redis_client.set(info_key, response.model_dump_json(), ex=STOREFRONT_CACHE_TTL)
+            except Exception:
+                logger.warning("Redis write failed for key=%s", info_key, exc_info=True)
+
+        return response
 
     @staticmethod
     def _to_public_contact(contact: dict) -> StorefrontContact:
@@ -106,7 +143,7 @@ class StorefrontService:
         + search. The cache is invalidated whenever the tenant's B2B
         product list changes (create / update / delete).
         """
-        tenant = self._require_public_tenant(slug)
+        tenant_id = self._tenant_id_for(slug)
 
         cache_key = f"storefront:catalog:{slug}:page:{page}:size:{page_size}:search:{search or ''}"
         redis_client = get_redis()
@@ -117,23 +154,29 @@ class StorefrontService:
                 cached = redis_client.get(cache_key)
                 if cached:
                     logger.debug("Cache hit: %s", cache_key)
-                    self.repo.record_event(tenant.id, "view_catalog", {"slug": slug, "page": page, "search": search, "cache": "hit"})
-                    self.db.commit()
-                    return StorefrontProductListResponse.model_validate_json(cached)
+                    result = StorefrontProductListResponse.model_validate_json(cached)
+                    self._track(tenant_id, "view_catalog", {"slug": slug, "page": page, "search": search, "cache": "hit"})
+                    return result
             except Exception:
                 logger.warning("Redis read failed for key=%s; falling through to DB", cache_key, exc_info=True)
 
         # Cache miss — query DB
         items, total = self.repo.products.list_products(
-            tenant_id=tenant.id,
+            tenant_id=tenant_id,
             page=page,
             page_size=page_size,
             search=search,
             product_type=PRODUCT_TYPE_PUBLIC,
         )
 
+        # Las imágenes de toda la página en una sola consulta: pedirlas por
+        # producto eran decenas de viajes a la base en cada fallo de caché.
+        images_by_product = self.image_repo.list_for_owners(
+            tenant_id, "product", [p.id for p in items]
+        )
+
         result = StorefrontProductListResponse(
-            items=[self._to_public_product(p, tenant.id) for p in items],
+            items=[self._to_public_product(p, images_by_product.get(p.id, [])) for p in items],
             total=total,
             page=page,
             page_size=page_size,
@@ -147,27 +190,22 @@ class StorefrontService:
             except Exception:
                 logger.warning("Redis write failed for key=%s", cache_key, exc_info=True)
 
-        self.repo.record_event(tenant.id, "view_catalog", {"slug": slug, "page": page, "search": search, "cache": "miss"})
-        self.db.commit()
+        self._track(tenant_id, "view_catalog", {"slug": slug, "page": page, "search": search, "cache": "miss"})
 
         return result
 
     def get_product(self, slug: str, product_id: str) -> StorefrontProductResponse:
         """Return public detail for a single product."""
-        tenant = self._require_public_tenant(slug)
+        tenant_id = self._tenant_id_for(slug)
 
-        product = self.repo.products.get_by_id(tenant.id, product_id)
+        product = self.repo.products.get_by_id(tenant_id, product_id)
         if product is None or product.product_type != PRODUCT_TYPE_PUBLIC:
             raise StorefrontNotFoundError(f"Product '{product_id}' not found")
 
-        self.repo.record_event(
-            tenant.id,
-            "view_product",
-            {"slug": slug, "product_id": product_id},
-        )
-        self.db.commit()
+        self._track(tenant_id, "view_product", {"slug": slug, "product_id": product_id})
 
-        return self._to_public_product(product, tenant.id)
+        images = self.image_repo.list_for_owner(tenant_id, "product", product.id)
+        return self._to_public_product(product, images)
 
     # ------------------------------------------------------------------
     # Internals
@@ -179,8 +217,57 @@ class StorefrontService:
             raise StorefrontNotFoundError(f"Storefront '{slug}' not found")
         return tenant
 
-    def _to_public_product(self, product, tenant_id: str) -> StorefrontProductResponse:
-        raw_images = self.image_repo.list_for_owner(tenant_id, "product", product.id)
+    def _tenant_id_for(self, slug: str) -> str:
+        """
+        slug → tenant_id, cache-aside.
+
+        Resolving the business is the first query of every public request,
+        and the answer (an id) almost never changes. A slug that does not
+        resolve is NOT cached, so a tenant that is activated later becomes
+        reachable immediately instead of after the TTL.
+        """
+        redis_client = get_redis()
+        cached = self._cached_tenant_id(redis_client, slug)
+        if cached:
+            return cached
+        tenant = self._require_public_tenant(slug)
+        self._remember_tenant_id(redis_client, slug, tenant.id)
+        return tenant.id
+
+    @staticmethod
+    def _cached_tenant_id(redis_client, slug: str) -> Optional[str]:
+        if redis_client is None:
+            return None
+        try:
+            return redis_client.get(storefront_tenant_key(slug)) or None
+        except Exception:
+            logger.warning("Redis read failed for tenant slug=%s", slug, exc_info=True)
+            return None
+
+    @staticmethod
+    def _remember_tenant_id(redis_client, slug: str, tenant_id: str) -> None:
+        if redis_client is None:
+            return
+        try:
+            redis_client.set(storefront_tenant_key(slug), tenant_id, ex=STOREFRONT_CACHE_TTL)
+        except Exception:
+            logger.warning("Redis write failed for tenant slug=%s", slug, exc_info=True)
+
+    def _track(self, tenant_id: str, event_type: str, payload: dict) -> None:
+        """
+        Record an analytics event without making the visitor wait for it.
+
+        With `tasks` the write happens after the response is sent, on its own
+        session; without them (other callers, tests) it is written inline.
+        """
+        if self.tasks is not None:
+            self.tasks.add_task(record_event_detached, tenant_id, event_type, payload)
+            return
+        self.repo.record_event(tenant_id, event_type, payload)
+        self.db.commit()
+
+    @staticmethod
+    def _to_public_product(product, raw_images) -> StorefrontProductResponse:
         images = [
             StorefrontImageResponse(
                 image_id=img.id,
