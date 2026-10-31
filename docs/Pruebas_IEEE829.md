@@ -112,17 +112,17 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las cinco verificaciones pasan |
 | **Dependencias** | Ninguna |
 
-### PC-02 · Validación del formulario y doble intento de login
+### PC-02 · Pantalla única de acceso: interruptor Cliente / Negocio
 
 | Campo | Contenido |
 |---|---|
 | **Identificador** | `KARD-TC-PC-02` |
-| **Elemento** | `LoginComponent` |
-| **Requisito cubierto** | US-001 — login con detección de tenant |
-| **Prioridad** | Media |
-| **Entradas** | Formulario vacío; correo con formato inválido; credenciales válidas de negocio; credenciales de cliente; credenciales inexistentes |
-| **Resultado esperado** | Con formulario inválido no se emite ninguna petición HTTP. Con credenciales válidas se llama a `/auth/login`; si responde 401, se reintenta contra `/consumers/login`; si ambas fallan, se muestra mensaje de error |
-| **Criterio de aprobación** | Las seis verificaciones pasan, incluida la ausencia de peticiones en los casos inválidos |
+| **Elemento** | `AuthPageComponent` (sirve `/login` y `/register`) |
+| **Requisito cubierto** | US-001 — acceso con identidades separadas (B2B / B2C) y registro de ambos |
+| **Prioridad** | Alta |
+| **Entradas** | Formulario vacío o inválido; credenciales de cliente y de negocio en cada lado del interruptor; registro de cliente y de negocio; contraseñas distintas o débiles; correo ya registrado; errores 401 y 403 |
+| **Resultado esperado** | Con formulario inválido no se emite ninguna petición. El interruptor decide la identidad: Cliente llama solo a `/consumers/login` y Negocio solo a `/auth/login`, sin reintentar con la otra (unas credenciales de negocio no entran como cliente). El registro de negocio usa `/auth/register-tenant` (no el endpoint del administrador de la plataforma) y el de cliente `/consumers/register`, y ambos dejan la sesión iniciada. Los errores del servidor se muestran en español. Al cambiar de lado cambian los campos exigidos y se limpia el error |
+| **Criterio de aprobación** | Las diecinueve verificaciones pasan, incluida la ausencia de peticiones en los casos inválidos y de la llamada cruzada entre identidades |
 | **Dependencias** | Ninguna |
 
 ### PC-03 · Guards de ruta
@@ -171,10 +171,10 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-01 · Aislamiento multi-tenant | 3 | ✅ Aprobado | 1.01 s (suite) |
 | PS-02 · Validación JSONB | 6 | ✅ Aprobado | — |
 | PS-03 · Inventario no negativo | 5 | ✅ Aprobado | — |
-| PC-01 · AuthService | 5 | ✅ Aprobado | 4.16 s (suite) |
-| PC-02 · LoginComponent | 6 | ✅ Aprobado | — |
+| PC-01 · AuthService | 7 | ✅ Aprobado | — |
+| PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
-| **TOTAL** | **31** | **6 de 6 aprobados** | |
+| **TOTAL** | **46** | **6 de 6 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
