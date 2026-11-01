@@ -67,6 +67,24 @@ class PosSaleItem(BaseModel):
     quantity: int = Field(..., gt=0, le=10_000)
 
 
+class DiscountInput(BaseModel):
+    """
+    Descuento sobre la venta completa: un porcentaje o un monto fijo.
+
+    Se aplica al subtotal de productos (no al envío ni a la propina). Que no
+    supere el subtotal lo valida el servicio, que es quien conoce el subtotal.
+    """
+
+    type: Literal["percent", "amount"]
+    value: Decimal = Field(..., gt=0, max_digits=10, decimal_places=2)
+
+    @model_validator(mode="after")
+    def _percent_in_range(self):
+        if self.type == "percent" and self.value > 100:
+            raise ValueError("El porcentaje de descuento no puede pasar de 100")
+        return self
+
+
 class CreatePosSaleRequest(_FulfillmentFields):
     """
     Venta capturada por un empleado en el punto de venta.
@@ -81,6 +99,19 @@ class CreatePosSaleRequest(_FulfillmentFields):
     payment_method: PaymentMethod = "cash"
     customer_name: Optional[str] = Field(default=None, max_length=120)
     on_insufficient_stock: Literal["reject", "skip"] = "reject"
+
+    # Caja. El servidor recalcula todo: lo que importa de estos tres campos es
+    # lo que el cajero DECIDIÓ (cuánto descontar, cuánta propina, cuánto
+    # entregó el cliente), nunca el total que muestre su pantalla.
+    discount: Optional[DiscountInput] = None
+    tip: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=10, decimal_places=2)
+    amount_received: Optional[Decimal] = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+
+    @model_validator(mode="after")
+    def _received_only_in_cash(self):
+        if self.amount_received is not None and self.payment_method != "cash":
+            raise ValueError("Solo un pago en efectivo lleva monto recibido")
+        return self
 
 
 class OrderItemResponse(BaseModel):
@@ -114,6 +145,15 @@ class OrderResponse(BaseModel):
     skipped: list[SkippedItemResponse] = []
     created_at: datetime
 
+    # Caja: lo que lleva el ticket. En pedidos en línea quedan en sus valores neutros.
+    payment_method: Optional[str] = None
+    discount_amount: Decimal = Decimal("0.00")
+    tip_amount: Decimal = Decimal("0.00")
+    amount_received: Optional[Decimal] = None
+    change_given: Optional[Decimal] = None
+    customer_name: Optional[str] = None
+    cashier: Optional[str] = None
+
 
 class OrderListResponse(BaseModel):
     items: list[OrderResponse]
@@ -142,6 +182,10 @@ class SaleResponse(BaseModel):
     payment_method: Optional[str] = None
     subtotal: Decimal
     shipping_cost: Decimal
+    discount_amount: Decimal = Decimal("0.00")
+    tip_amount: Decimal = Decimal("0.00")
+    amount_received: Optional[Decimal] = None
+    change_given: Optional[Decimal] = None
     total: Decimal
     item_count: int
     customer_name: str
@@ -166,6 +210,10 @@ class SalesSummary(BaseModel):
     # Cuánto del ingreso fue envío y no producto. Sin este desglose, el
     # reporte contaría la logística como venta de catálogo.
     shipping: Decimal = Decimal("0.00")
+    # Lo mismo para las propinas (están dentro de `revenue` pero no son venta
+    # de producto) y para lo que se descontó (ya restado de `revenue`).
+    tips: Decimal = Decimal("0.00")
+    discounts: Decimal = Decimal("0.00")
 
 
 class UpdateSaleStatusRequest(BaseModel):

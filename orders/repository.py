@@ -146,7 +146,7 @@ class OrderRepository:
         # (`FILTER`): antes eran cuatro consultas separadas sobre el mismo
         # conjunto, y cada una cuesta un viaje a la base.
         no_cancelada = Order.status != "canceled"
-        order_count, canceled_count, revenue, shipping = (
+        order_count, canceled_count, revenue, shipping, tips, discounts = (
             self._sales_query(tenant_id, date_from, date_to, status, search)
             .with_entities(
                 func.count(Order.id),
@@ -155,6 +155,10 @@ class OrderRepository:
                 # Cuánto del ingreso fue logística y no catálogo. El reporte lo
                 # resta para no presentar el envío como venta de producto.
                 func.coalesce(func.sum(Order.shipping_cost).filter(no_cancelada), 0),
+                # Las propinas están dentro del ingreso, pero no son venta de
+                # producto: se reportan aparte por la misma razón.
+                func.coalesce(func.sum(Order.tip_amount).filter(no_cancelada), 0),
+                func.coalesce(func.sum(Order.discount_amount).filter(no_cancelada), 0),
             )
             .one()
         )
@@ -176,4 +180,6 @@ class OrderRepository:
             "revenue": Decimal(revenue),
             "units": int(units),
             "shipping": Decimal(shipping),
+            "tips": Decimal(tips),
+            "discounts": Decimal(discounts),
         }

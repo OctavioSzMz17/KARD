@@ -123,3 +123,41 @@ class BillingUnavailableError(Exception):
     Es distinto de un error del negocio: aquí la petición puede ser correcta
     y aun así no haber manera de cobrar, así que se responde 503 y no 400.
     """
+
+
+# ── Caja y punto de venta ───────────────────────────────────────────────
+
+
+class CashSessionAlreadyOpenError(Exception):
+    """Se intentó abrir la caja cuando el negocio ya tiene un turno abierto."""
+
+
+class CashClosedError(Exception):
+    """
+    Se intentó cobrar en el mostrador sin tener la caja abierta.
+
+    Sin turno abierto la venta no pertenecería a ningún corte, y el efectivo
+    esperado al cerrar no cuadraría con lo que realmente entró.
+    """
+
+
+class CashSessionNotFoundError(Exception):
+    """El turno de caja pedido no existe o es de otro negocio."""
+
+
+class InvalidDiscountError(Exception):
+    """El descuento no se puede aplicar (por ejemplo, mayor que el subtotal)."""
+
+
+class InsufficientPaymentError(Exception):
+    """El efectivo recibido no alcanza para cubrir el total de la venta."""
+
+
+class DuplicateProductCodeError(Exception):
+    """El SKU o el código de barras ya lo usa otro producto vigente del negocio."""
+
+    def __init__(self, field: str, value: str):
+        super().__init__(f"{field}={value}")
+        self.field = field
+        self.value = value
+

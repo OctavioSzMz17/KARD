@@ -10,7 +10,7 @@ invisible as one that doesn't exist at all.
 
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from db.models import InventoryTransaction, Product
@@ -59,7 +59,12 @@ class ProductRepository:
         query = self.db.query(Product).filter(Product.tenant_id == tenant_id, Product.is_deleted.is_(False))
 
         if search:
-            query = query.filter(Product.name.ilike(f"%{search}%"))
+            # Se busca por lo que el cajero tenga a la mano: el nombre, el SKU
+            # que teclea o el código de barras que lee el escáner.
+            like = f"%{search}%"
+            query = query.filter(
+                or_(Product.name.ilike(like), Product.sku.ilike(like), Product.barcode.ilike(like))
+            )
         if product_type:
             query = query.filter(Product.product_type == product_type)
 
@@ -71,6 +76,21 @@ class ProductRepository:
             .all()
         )
         return items, total
+
+    def get_by_code(self, tenant_id: str, field: str, value: str) -> Optional[Product]:
+        """
+        Producto vigente que ya usa ese `sku` o `barcode`.
+
+        El SKU se compara sin distinguir mayúsculas (igual que el índice único
+        de la base); el código de barras, exacto.
+        """
+        column = Product.sku if field == "sku" else Product.barcode
+        match = func.lower(column) == value.lower() if field == "sku" else column == value
+        return (
+            self.db.query(Product)
+            .filter(Product.tenant_id == tenant_id, Product.is_deleted.is_(False), match)
+            .first()
+        )
 
     def get_low_stock(self, tenant_id: str) -> list[Product]:
         """Active products whose stock has fallen below their own alert threshold."""

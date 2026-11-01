@@ -134,6 +134,11 @@ class Product(Base):
     price = Column(Numeric(10, 2), nullable=False, default=0)
     inventory_count = Column(Integer, nullable=False, default=0)
     low_stock_threshold = Column(Integer, nullable=False, default=5)
+    # Claves para encontrar y cobrar rápido (migración 007). Opcionales y únicas
+    # por negocio entre sus productos vigentes; la unicidad la garantizan los
+    # índices parciales de la base, no solo el servicio.
+    sku = Column(String(64), nullable=True)
+    barcode = Column(String(64), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_by = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -301,6 +306,15 @@ class Order(Base):
     shipping_cost = Column(Numeric(10, 2), nullable=False, default=0)
     total = Column(Numeric(10, 2), nullable=False)
 
+    # Caja (migración 007). La base garantiza
+    #   total = subtotal - discount_amount + shipping_cost + tip_amount
+    # y, en efectivo, change_given = amount_received - total.
+    discount_amount = Column(Numeric(10, 2), nullable=False, default=0)
+    tip_amount = Column(Numeric(10, 2), nullable=False, default=0)
+    amount_received = Column(Numeric(10, 2), nullable=True)
+    change_given = Column(Numeric(10, 2), nullable=True)
+    cash_session_id = Column(String(50), ForeignKey("cash_sessions.id", ondelete="RESTRICT"), nullable=True, index=True)
+
     # Datos de la entrega. La dirección es una COPIA del momento de la compra,
     # no una referencia: si el cliente la edita después, el pedido histórico
     # debe seguir diciendo a dónde se mandó.
@@ -316,6 +330,40 @@ class Order(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Order id={self.id!r} status={self.status!r} total={self.total}>"
+
+
+class CashSession(Base):
+    """
+    Un turno de caja: del "abrir caja" al "cerrar caja".
+
+    Solo puede haber uno abierto por negocio a la vez (índice parcial
+    `uq_cash_sessions_one_open`). Al cerrarlo se congela `summary`, de modo que
+    el corte histórico no cambie si una venta se reembolsa o cancela después.
+
+    `difference = counted_cash - expected_cash`: negativo es un faltante y
+    positivo un sobrante.
+    """
+
+    __tablename__ = "cash_sessions"
+
+    id = Column(String(50), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    status = Column(String(10), nullable=False, default="open")
+
+    opened_by = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    opened_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    opening_float = Column(Numeric(10, 2), nullable=False, default=0)
+
+    closed_by = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    expected_cash = Column(Numeric(10, 2), nullable=True)
+    counted_cash = Column(Numeric(10, 2), nullable=True)
+    difference = Column(Numeric(10, 2), nullable=True)
+    summary = Column(JSONB, nullable=True)
+    notes = Column(String(500), nullable=True)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<CashSession id={self.id!r} status={self.status!r} tenant={self.tenant_id!r}>"
 
 
 class OrderItem(Base):

@@ -28,8 +28,10 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from cash.repository import CashRepository
 from core.exceptions import (
     CartEmptyError,
+    CashClosedError,
     InvalidMetadataError,
     OrderNotFoundError,
     OrderStockConflictError,
@@ -50,6 +52,7 @@ from orders.models import (
     SalesSummary,
     SkippedItemResponse,
 )
+from orders.money import change_for, discount_amount, order_total, to_money
 from orders.repository import OrderRepository
 from storefront.repository import StorefrontRepository
 from utils.helpers import generate_id
@@ -140,9 +143,14 @@ class OrderService:
         tenant_id: str,
         user_id: str,
         payload: CreatePosSaleRequest,
+        cashier: str | None = None,
     ) -> OrderResponse:
         """
         Venta capturada por un empleado del negocio.
+
+        Exige la caja abierta: la venta se liga al turno para que el corte
+        cuadre. El turno se toma con bloqueo compartido, así un cierre en curso
+        espera a que esta venta termine y la incluya en su cuenta.
 
         Reusa íntegro el motor del checkout —bloqueo de filas, cascada de
         insumos y bitácora atómica— alimentándolo con la lista de artículos
@@ -153,6 +161,10 @@ class OrderService:
         tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if tenant is None:
             raise StorefrontNotFoundError(tenant_id)
+
+        cash_session = CashRepository(self.db).get_open(tenant_id, lock="share")
+        if cash_session is None:
+            raise CashClosedError(tenant_id)
 
         self._assert_offered(tenant, payload.fulfillment_type)
 
@@ -183,6 +195,22 @@ class OrderService:
             for u in unavailable
         ]
 
+        # Descuento, propina y cambio se validan ANTES de mover el inventario:
+        # un descuento mal capturado no debe dejar existencias descontadas.
+        try:
+            subtotal = sum((p["product"].price * p["quantity"] for p in fulfillable), Decimal("0.00"))
+            discount = discount_amount(
+                subtotal,
+                payload.discount.type if payload.discount else None,
+                payload.discount.value if payload.discount else None,
+            )
+            shipping = self._shipping_cost_for(tenant, payload.fulfillment_type, subtotal)
+            total = order_total(subtotal, discount, shipping, to_money(payload.tip))
+            change = change_for(total, payload.amount_received) if payload.amount_received is not None else None
+        except Exception:
+            self.db.rollback()
+            raise
+
         order, items_data = self._apply(
             tenant,
             fulfillable,
@@ -194,6 +222,11 @@ class OrderService:
             table_number=payload.table_number,
             shipping_address=payload.shipping_address.model_dump() if payload.shipping_address else None,
             customer_name=payload.customer_name,
+            discount=discount,
+            tip=to_money(payload.tip),
+            amount_received=to_money(payload.amount_received) if payload.amount_received is not None else None,
+            change_given=change,
+            cash_session_id=cash_session.id,
         )
 
         self.db.commit()
@@ -203,7 +236,7 @@ class OrderService:
             payload.payment_method, order.total, len(skipped),
         )
 
-        return self._to_response(order, items_data, tenant.slug or "", tenant.business_name, skipped)
+        return self._to_response(order, items_data, tenant.slug or "", tenant.business_name, skipped, cashier)
 
     # ------------------------------------------------------------------
     # Reglas de entrega del negocio
@@ -369,6 +402,11 @@ class OrderService:
         table_number: str | None = None,
         shipping_address: dict | None = None,
         customer_name: str | None = None,
+        discount: Decimal = Decimal("0.00"),
+        tip: Decimal = Decimal("0.00"),
+        amount_received: Decimal | None = None,
+        change_given: Decimal | None = None,
+        cash_session_id: str | None = None,
     ) -> tuple[Order, list[dict]]:
         total = Decimal("0.00")
         items_data: list[dict] = []
@@ -432,7 +470,12 @@ class OrderService:
             payment_method=payment_method,
             subtotal=subtotal,
             shipping_cost=shipping_cost,
-            total=subtotal + shipping_cost,
+            discount_amount=discount,
+            tip_amount=tip,
+            total=order_total(subtotal, discount, shipping_cost, tip),
+            amount_received=amount_received,
+            change_given=change_given,
+            cash_session_id=cash_session_id,
             table_number=table_number,
             shipping_address=shipping_address,
             customer_name=customer_name,
@@ -560,6 +603,10 @@ class OrderService:
             payment_method=order.payment_method,
             subtotal=order.subtotal,
             shipping_cost=order.shipping_cost,
+            discount_amount=order.discount_amount,
+            tip_amount=order.tip_amount,
+            amount_received=order.amount_received,
+            change_given=order.change_given,
             total=order.total,
             item_count=sum(i.quantity for i in items),
             customer_name=display_name,
@@ -579,7 +626,7 @@ class OrderService:
         )
 
     @staticmethod
-    def _to_response(order, items_data, slug, business_name, skipped=None) -> OrderResponse:
+    def _to_response(order, items_data, slug, business_name, skipped=None, cashier=None) -> OrderResponse:
         return OrderResponse(
             order_id=order.id,
             slug=slug,
@@ -603,6 +650,13 @@ class OrderService:
             ],
             skipped=skipped or [],
             created_at=order.created_at,
+            payment_method=order.payment_method,
+            discount_amount=order.discount_amount,
+            tip_amount=order.tip_amount,
+            amount_received=order.amount_received,
+            change_given=order.change_given,
+            customer_name=order.customer_name,
+            cashier=cashier,
         )
 
     @staticmethod
@@ -630,4 +684,10 @@ class OrderService:
             ],
             skipped=[],
             created_at=order.created_at,
+            payment_method=order.payment_method,
+            discount_amount=order.discount_amount,
+            tip_amount=order.tip_amount,
+            amount_received=order.amount_received,
+            change_given=order.change_given,
+            customer_name=order.customer_name,
         )

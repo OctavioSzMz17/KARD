@@ -17,13 +17,19 @@ from core.exceptions import (
     BillingUnavailableError,
     CartEmptyError,
     CartUnavailableError,
+    CashClosedError,
+    CashSessionAlreadyOpenError,
+    CashSessionNotFoundError,
     ConsumerAlreadyExistsError,
     ConsumerNotFoundError,
+    DuplicateProductCodeError,
     DuplicateProductNameError,
     EmailAlreadyExistsError,
     ImageNotFoundError,
+    InsufficientPaymentError,
     InsufficientStockError,
     InvalidCredentialsError,
+    InvalidDiscountError,
     InvalidMetadataError,
     InvalidRecipeError,
     OrderNotFoundError,
@@ -37,6 +43,7 @@ from core.exceptions import (
     UserCreationNotAllowedError,
 )
 from billing.routes import router as billing_router
+from cash.routes import router as cash_router
 from cart.routes import router as cart_router
 from consumers.routes import router as consumers_router
 from explore.routes import router as explore_router
@@ -228,6 +235,44 @@ async def order_stock_conflict_exception_handler(request: Request, exc: OrderSto
     )
 
 
+def _coded(status_code: int, code: str, message: str) -> JSONResponse:
+    """Error con `code` legible por máquina: el frontend decide qué mostrar según él."""
+    return JSONResponse(status_code=status_code, content={"success": False, "code": code, "error": message})
+
+
+@app.exception_handler(CashClosedError)
+async def cash_closed_exception_handler(request: Request, exc: CashClosedError):
+    """Cobrar sin caja abierta → 409; el punto de venta responde pidiendo abrirla."""
+    return _coded(409, "CASH_CLOSED", "Abre la caja antes de cobrar")
+
+
+@app.exception_handler(CashSessionAlreadyOpenError)
+async def cash_already_open_exception_handler(request: Request, exc: CashSessionAlreadyOpenError):
+    return _coded(409, "CASH_ALREADY_OPEN", "Ya hay una caja abierta")
+
+
+@app.exception_handler(CashSessionNotFoundError)
+async def cash_not_found_exception_handler(request: Request, exc: CashSessionNotFoundError):
+    return _coded(404, "CASH_SESSION_NOT_FOUND", "Turno de caja no encontrado")
+
+
+@app.exception_handler(InvalidDiscountError)
+async def invalid_discount_exception_handler(request: Request, exc: InvalidDiscountError):
+    return _coded(400, "INVALID_DISCOUNT", str(exc))
+
+
+@app.exception_handler(InsufficientPaymentError)
+async def insufficient_payment_exception_handler(request: Request, exc: InsufficientPaymentError):
+    return _coded(400, "INSUFFICIENT_PAYMENT", str(exc))
+
+
+@app.exception_handler(DuplicateProductCodeError)
+async def duplicate_product_code_exception_handler(request: Request, exc: DuplicateProductCodeError):
+    """SKU o código de barras repetido entre los productos vigentes del negocio → 400."""
+    etiqueta = "El SKU" if exc.field == "sku" else "El código de barras"
+    return _coded(400, "DUPLICATE_PRODUCT_CODE", f"{etiqueta} '{exc.value}' ya lo usa otro producto")
+
+
 @app.get("/health")
 async def health_check():
     """Lightweight liveness probe used by Docker healthchecks and uptime checks."""
@@ -245,6 +290,7 @@ app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
 app.include_router(explore_router, prefix="/api/v1/explore", tags=["explore"])
 app.include_router(cart_router, prefix="/api/v1/cart", tags=["cart"])
 app.include_router(orders_router, prefix="/api/v1/orders", tags=["orders"])
+app.include_router(cash_router, prefix="/api/v1/cash", tags=["cash"])
 app.include_router(settings_router, prefix="/api/v1/settings", tags=["settings"])
 
 

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from audit_logging.audit import log_operation
 from core.dependencies import CurrentUser
 from core.exceptions import (
+    DuplicateProductCodeError,
     DuplicateProductNameError,
     InsufficientStockError,
     ProductNotFoundError,
@@ -60,6 +61,8 @@ class ProductService:
 
         if self.products.get_by_name(current_user.tenant_id, payload.name) is not None:
             raise DuplicateProductNameError(payload.name)
+        self._assert_code_free(current_user.tenant_id, "sku", payload.sku)
+        self._assert_code_free(current_user.tenant_id, "barcode", payload.barcode)
 
         product = Product(
             id=generate_id("p"),
@@ -70,6 +73,8 @@ class ProductService:
             price=payload.price,
             inventory_count=payload.inventory_count,
             low_stock_threshold=payload.low_stock_threshold,
+            sku=payload.sku,
+            barcode=payload.barcode,
             metadata_=payload.metadata,
             created_by=current_user.user_id,
         )
@@ -77,12 +82,12 @@ class ProductService:
         try:
             self.products.create(product)
             self.db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             self.db.rollback()
             logger.warning(
                 "Product-creation race detected for tenant_id=%s name=%s", current_user.tenant_id, payload.name
             )
-            raise DuplicateProductNameError(payload.name)
+            raise self._integrity_error(exc, payload.name, payload.sku, payload.barcode)
 
         log_operation(
             tenant_id=current_user.tenant_id,
@@ -134,6 +139,17 @@ class ProductService:
                 raise DuplicateProductNameError(payload.name)
             product.name = payload.name
 
+        # None = no tocar; cadena vacía = quitar el código.
+        for field in ("sku", "barcode"):
+            nuevo = getattr(payload, field)
+            if nuevo is None:
+                continue
+            nuevo = nuevo or None
+            if nuevo != getattr(product, field):
+                if nuevo:
+                    self._assert_code_free(current_user.tenant_id, field, nuevo, exclude_id=product.id)
+                setattr(product, field, nuevo)
+
         if payload.description is not None:
             product.description = payload.description
         if payload.price is not None:
@@ -149,12 +165,12 @@ class ProductService:
         try:
             self.products.save(product)
             self.db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             self.db.rollback()
             logger.warning(
                 "Product-update race detected for tenant_id=%s product_id=%s", current_user.tenant_id, product_id
             )
-            raise DuplicateProductNameError(payload.name or product.name)
+            raise self._integrity_error(exc, payload.name or product.name, product.sku, product.barcode)
 
         log_operation(
             tenant_id=current_user.tenant_id,
@@ -315,9 +331,35 @@ class ProductService:
             "description": product.description,
             "price": str(product.price),
             "low_stock_threshold": product.low_stock_threshold,
+            "sku": product.sku,
+            "barcode": product.barcode,
             "metadata": product.metadata_,
             "is_deleted": product.is_deleted,
         }
+
+    def _assert_code_free(
+        self, tenant_id: str, field: str, value: str | None, exclude_id: str | None = None
+    ) -> None:
+        """El SKU o el código de barras no puede repetirse entre los productos vigentes del negocio."""
+        if not value:
+            return
+        existing = self.products.get_by_code(tenant_id, field, value)
+        if existing is not None and existing.id != exclude_id:
+            raise DuplicateProductCodeError(field, value)
+
+    @staticmethod
+    def _integrity_error(exc: IntegrityError, name: str, sku: str | None, barcode: str | None) -> Exception:
+        """
+        Traduce una colisión que se coló entre la comprobación y el guardado
+        (dos personas guardando a la vez) al error que le corresponde: los
+        índices únicos de la base son la última línea de defensa.
+        """
+        detalle = str(getattr(exc, "orig", exc))
+        if "uq_products_tenant_sku" in detalle:
+            return DuplicateProductCodeError("sku", sku or "")
+        if "uq_products_tenant_barcode" in detalle:
+            return DuplicateProductCodeError("barcode", barcode or "")
+        return DuplicateProductNameError(name)
 
     def _to_responses(self, products: list[Product], tenant_id: str) -> list[ProductResponse]:
         """
@@ -357,5 +399,7 @@ class ProductService:
             low_stock_threshold=product.low_stock_threshold,
             metadata=product.metadata_,
             is_deleted=product.is_deleted,
+            sku=product.sku,
+            barcode=product.barcode,
             images=images,
         )

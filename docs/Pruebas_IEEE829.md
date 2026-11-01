@@ -99,6 +99,19 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Estado intacto tras el rechazo; en la venta válida, `cantidad_antes + cambio = cantidad_después` |
 | **Dependencias** | Ninguna |
 
+### PS-04 · Caja y cobro de mostrador
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-04` |
+| **Elemento** | `CashService` · `OrderService.create_pos_sale` · `orders/money.py` · reglas de SKU y código de barras en `ProductService` |
+| **Requisito cubierto** | Starter como punto de venta: cobrar solo con caja abierta, descuento, propina, cambio, corte con diferencia y búsqueda por código |
+| **Prioridad** | Crítica (es dinero) |
+| **Entradas** | Ventas en efectivo, tarjeta y transferencia con y sin descuento (porcentaje o monto) y propina; efectivo recibido de menos, exacto y de más; descuento mayor al subtotal; ventas canceladas dentro del turno; apertura doble; cierre con faltante, sobrante y exacto; SKU y código repetidos (también con otra capitalización) |
+| **Resultado esperado** | Sin turno abierto cobrar falla con `CASH_CLOSED` y no mueve inventario. `total = subtotal − descuento + envío + propina` y el cambio es `recibido − total`; el redondeo es mitad hacia arriba. Un descuento mayor al subtotal o un pago insuficiente se rechazan **antes** de tocar el inventario. El efectivo esperado es `fondo + ventas en efectivo` (propina en efectivo incluida; canceladas y reembolsadas excluidas) y `diferencia = contado − esperado`. Un turno cerrado queda congelado. Solo puede haber un turno abierto por negocio. SKU y código de barras no se repiten dentro de un negocio |
+| **Criterio de aprobación** | Las 73 verificaciones pasan, y cada regla falla si se la quita (se comprobó con tres mutaciones: sin el candado de caja cerrada, con el efectivo esperado calculado sobre el bruto, y con redondeo al par) |
+| **Dependencias** | Migración `007_caja_punto_de_venta.sql` aplicada para la verificación contra base real |
+
 ### PC-01 · Custodia de sesión y separación de identidades
 
 | Campo | Contenido |
@@ -151,6 +164,19 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las once verificaciones pasan; en particular, la de "reducir movimiento" falla si se quita su protección |
 | **Dependencias** | Ninguna |
 
+### PC-06 · Matemática del cobro (pantalla de punto de venta)
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-06` |
+| **Elemento** | `pos-math.ts` (usado por `PosComponent`) |
+| **Requisito cubierto** | La pantalla debe mostrar el mismo total y el mismo cambio que el servidor va a cobrar |
+| **Prioridad** | Crítica |
+| **Entradas** | Importes escritos de varias formas (`$1,200.00`, `.5`, `0.005`, vacío, texto); descuentos en porcentaje y en monto, válidos y fuera de rango; propinas válidas e inválidas; efectivo recibido de menos, exacto y de más; totales pequeños y grandes para los montos rápidos |
+| **Resultado esperado** | Todo se calcula en centavos enteros (`0.1 + 0.2` da `0.30`). El medio centavo sube (`$0.005 → $0.01`). Un descuento mayor al subtotal es un error y no se recorta. El cambio es `recibido − total`; si no alcanza, dice cuánto falta. Los montos rápidos nunca ofrecen menos del total |
+| **Criterio de aprobación** | Las veintiséis verificaciones pasan |
+| **Dependencias** | Ninguna |
+
 ---
 
 ## 3. Procedimiento de Pruebas (Test Procedure)
@@ -184,11 +210,13 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-01 · Aislamiento multi-tenant | 3 | ✅ Aprobado | 1.01 s (suite) |
 | PS-02 · Validación JSONB | 6 | ✅ Aprobado | — |
 | PS-03 · Inventario no negativo | 5 | ✅ Aprobado | — |
+| PS-04 · Caja y cobro de mostrador | 73 | ✅ Aprobado | — |
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
 | PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
 | PC-05 · ExploreComponent | 11 | ✅ Aprobado | — |
-| **TOTAL** | **57** | **7 de 7 aprobados** | |
+| PC-06 · Matemática del cobro | 26 | ✅ Aprobado | — |
+| **TOTAL** | **156** | **9 de 9 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
@@ -238,7 +266,10 @@ esa brecha; queda propuesta para la siguiente iteración.
 | Caso | Archivo |
 |---|---|
 | PS-01, PS-02, PS-03 | `Kard/tests/test_products.py` |
+| PS-04 | `Kard/tests/test_caja_pos.py` |
+| PS-04 contra base real (38 verificaciones, se revierten solas) | `Kard/tests/integracion/e2e_caja.py` |
 | Dobles y fixtures | `Kard/tests/conftest.py` |
 | PC-01 | `Kard-client/src/app/core/services/auth.service.spec.ts` |
 | PC-02 | `Kard-client/src/app/auth/login/login.component.spec.ts` |
 | PC-03 | `Kard-client/src/app/core/guards/auth.guard.spec.ts` |
+| PC-06 | `Kard-client/src/app/dashboard/pos/pos-math.spec.ts` |

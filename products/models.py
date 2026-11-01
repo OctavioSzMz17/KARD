@@ -9,6 +9,7 @@ the product's `product_type` — a restaurant platillo (final) and a
 restaurant insumo require completely different fields.
 """
 
+import re
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
@@ -122,6 +123,30 @@ def validate_metadata(business_type: str, product_type: str, metadata: dict[str,
 # ---------------------------------------------------------------------------
 
 
+# Un código (SKU o de barras) es lo que se teclea o lo que lee un escáner:
+# letras, números y los separadores habituales. Nada de espacios ni símbolos
+# raros, que casi siempre son errores de captura (o un escáner mal configurado).
+_CODE_RE = re.compile(r"^[A-Za-z0-9._/\-]+$")
+
+
+def _clean_code(value: Optional[str], *, blank_clears: bool) -> Optional[str]:
+    """
+    Normaliza un SKU / código de barras.
+
+    En una alta, vacío significa "sin código" (None). En una edición, vacío
+    significa "quítale el código" y se conserva como cadena vacía, porque
+    `None` ahí quiere decir "no tocar".
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return "" if blank_clears else None
+    if not _CODE_RE.match(value):
+        raise ValueError("Solo letras, números y . _ - /")
+    return value
+
+
 class ProductCreate(BaseModel):
     """Payload for `POST /products`."""
 
@@ -132,6 +157,8 @@ class ProductCreate(BaseModel):
     inventory_count: int = Field(default=0, ge=0)
     low_stock_threshold: int = Field(default=5, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    sku: Optional[str] = Field(default=None, max_length=64)
+    barcode: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("name")
     @classmethod
@@ -140,6 +167,11 @@ class ProductCreate(BaseModel):
         if not v:
             raise ValueError("name cannot be blank")
         return v
+
+    @field_validator("sku", "barcode")
+    @classmethod
+    def clean_code(cls, v: Optional[str]) -> Optional[str]:
+        return _clean_code(v, blank_clears=False)
 
 
 class ProductUpdate(BaseModel):
@@ -157,6 +189,9 @@ class ProductUpdate(BaseModel):
     price: Optional[Decimal] = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     low_stock_threshold: Optional[int] = Field(default=None, ge=0)
     metadata: Optional[dict[str, Any]] = None
+    # None = no tocar; cadena vacía = quitar el código.
+    sku: Optional[str] = Field(default=None, max_length=64)
+    barcode: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("name")
     @classmethod
@@ -167,6 +202,11 @@ class ProductUpdate(BaseModel):
         if not v:
             raise ValueError("name cannot be blank")
         return v
+
+    @field_validator("sku", "barcode")
+    @classmethod
+    def clean_code(cls, v: Optional[str]) -> Optional[str]:
+        return _clean_code(v, blank_clears=True)
 
 
 class StockChangeRequest(BaseModel):
@@ -195,6 +235,8 @@ class ProductResponse(BaseModel):
     low_stock_threshold: int
     metadata: dict[str, Any]
     is_deleted: bool
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
     images: list["ImageResponse"] = Field(default_factory=list)
 
 

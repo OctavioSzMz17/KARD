@@ -162,6 +162,8 @@ class TestVentaSinCliente:
             id="ord_1", status="paid", fulfillment_type="takeaway",
             fulfillment_status="preparing", captured_by="staff", payment_method="cash",
             subtotal=Decimal("40.00"), shipping_cost=Decimal("0.00"), total=Decimal("40.00"),
+            discount_amount=Decimal("0.00"), tip_amount=Decimal("0.00"),
+            amount_received=None, change_given=None,
             table_number=None, customer_name=customer_name, items=[],
             created_at=__import__("datetime").datetime(2026, 10, 29),
         )

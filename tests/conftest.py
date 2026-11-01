@@ -28,6 +28,19 @@ from core.dependencies import CurrentUser
 # ---------------------------------------------------------------------------
 
 
+def apply_orm_defaults(obj) -> None:
+    """
+    Imita lo que hace la base al guardar: rellena las columnas vacías con el
+    `default` declarado en el modelo (created_at, is_deleted, ...). Sin esto,
+    un doble que "guarda" dejaría esos campos en None y la prueba fallaría por
+    una diferencia con la base real, no por un error del código.
+    """
+    for col in obj.__table__.columns:
+        if getattr(obj, col.key, None) is None and col.default is not None:
+            arg = col.default.arg
+            setattr(obj, col.key, arg(None) if callable(arg) else arg)
+
+
 class FakeProductRepository:
     """
     Repositorio en memoria que respeta el aislamiento por tenant.
@@ -59,7 +72,20 @@ class FakeProductRepository:
         self.saved.append(product)
 
     def create(self, product):
+        apply_orm_defaults(product)
         self._products.append(product)
+
+    def get_by_code(self, tenant_id, field, value):
+        """Igual que el real: acotado al negocio, solo vigentes, SKU sin distinguir mayúsculas."""
+        for p in self._products:
+            if p.tenant_id != tenant_id or p.is_deleted:
+                continue
+            actual = getattr(p, field, None)
+            if actual is None:
+                continue
+            if (actual.lower() == value.lower()) if field == "sku" else (actual == value):
+                return p
+        return None
 
     def list_products(self, tenant_id, page, page_size, search=None, product_type=None):
         items = [p for p in self._products if p.tenant_id == tenant_id and not p.is_deleted]
@@ -134,6 +160,7 @@ def make_product(product_id, tenant_id, name="Producto", stock=10, product_type=
         price=100,
         inventory_count=stock,
         low_stock_threshold=5,
+        sku=None, barcode=None,
         metadata_=metadata or {},
         is_deleted=False,
         created_by="u_test",

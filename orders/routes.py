@@ -86,7 +86,11 @@ def create_pos_sale(
     mueve el inventario exactamente igual que una en línea.
     """
     return OrderService(db).create_pos_sale(
-        current_user.tenant_id, current_user.user_id, payload
+        current_user.tenant_id,
+        current_user.user_id,
+        payload,
+        # Quién cobró, para el ticket: la parte local del correo, no el correo.
+        cashier=current_user.email.split("@")[0],
     )
 
 
