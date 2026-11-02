@@ -108,8 +108,8 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Requisito cubierto** | Starter como punto de venta: cobrar solo con caja abierta, descuento, propina, cambio, corte con diferencia y búsqueda por código |
 | **Prioridad** | Crítica (es dinero) |
 | **Entradas** | Ventas en efectivo, tarjeta y transferencia con y sin descuento (porcentaje o monto) y propina; efectivo recibido de menos, exacto y de más; descuento mayor al subtotal; ventas canceladas dentro del turno; apertura doble; cierre con faltante, sobrante y exacto; SKU y código repetidos (también con otra capitalización) |
-| **Resultado esperado** | Sin turno abierto cobrar falla con `CASH_CLOSED` y no mueve inventario. `total = subtotal − descuento + envío + propina` y el cambio es `recibido − total`; el redondeo es mitad hacia arriba. Un descuento mayor al subtotal o un pago insuficiente se rechazan **antes** de tocar el inventario. El efectivo esperado es `fondo + ventas en efectivo` (propina en efectivo incluida; canceladas y reembolsadas excluidas) y `diferencia = contado − esperado`. Un turno cerrado queda congelado. Solo puede haber un turno abierto por negocio. SKU y código de barras no se repiten dentro de un negocio |
-| **Criterio de aprobación** | Las 73 verificaciones pasan, y cada regla falla si se la quita (se comprobó con tres mutaciones: sin el candado de caja cerrada, con el efectivo esperado calculado sobre el bruto, y con redondeo al par) |
+| **Resultado esperado** | Sin turno abierto cobrar falla con `CASH_CLOSED` y no mueve inventario. `total = subtotal − descuento + envío + propina` y el cambio es `recibido − total`; el redondeo es mitad hacia arriba. Un descuento mayor al subtotal o un pago insuficiente se rechazan **antes** de tocar el inventario. El efectivo esperado es `fondo + ventas en efectivo` (propina en efectivo incluida; canceladas y reembolsadas excluidas) y `diferencia = contado − esperado`. Un turno cerrado queda congelado. Solo puede haber un turno abierto por negocio. SKU y código de barras no se repiten dentro de un negocio. Lo que lee el escáner se resuelve por código de barras, SKU (sin distinguir mayúsculas) o id, solo dentro del negocio del token y sin productos eliminados |
+| **Criterio de aprobación** | Las 80 verificaciones pasan, y cada regla falla si se la quita (se comprobó con tres mutaciones: sin el candado de caja cerrada, con el efectivo esperado calculado sobre el bruto, y con redondeo al par) |
 | **Dependencias** | Migración `007_caja_punto_de_venta.sql` aplicada para la verificación contra base real |
 
 ### PC-01 · Custodia de sesión y separación de identidades
@@ -177,6 +177,32 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las veintiséis verificaciones pasan |
 | **Dependencias** | Ninguna |
 
+### PC-07 · Lógica del escáner de cámara
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-07` |
+| **Elemento** | `scan-logic.ts` (usado por `ScannerComponent` y `PosComponent`) |
+| **Requisito cubierto** | Escanear productos con la cámara del celular sin cobrar de más ni de menos |
+| **Prioridad** | Crítica (es dinero) |
+| **Entradas** | Lecturas con espacios y saltos de línea, vacías y demasiado largas; el mismo código visto durante diez segundos seguidos; un código apartado y vuelto a apuntar; dos productos alternados; un parpadeo corto de la cámara; los formatos que declara un lector nativo |
+| **Resultado esperado** | Un producto frente a la cámara cuenta una sola vez por muy a la vista que se quede. Cuenta otra vez solo si dejó de verse más de 1.2 s (apartarlo y volver a apuntarlo es "otro"). Un código distinto cuenta de inmediato. Un parpadeo de uno o dos cuadros no lo cuenta de nuevo. El lector nativo solo se usa si entiende QR, Code 128 y EAN-13; si no, se usa el de respaldo |
+| **Criterio de aprobación** | Las trece verificaciones pasan, y la del producto que se queda a la vista falla si la ventana se renueva solo al contar (se comprobó con esa mutación) |
+| **Dependencias** | Ninguna |
+
+### PC-08 · Etiquetas de producto (QR y código de barras)
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-08` |
+| **Elemento** | `labels.ts` (usado por la hoja de etiquetas de Productos) |
+| **Requisito cubierto** | Imprimir etiquetas que el escáner pueda volver a leer |
+| **Prioridad** | Alta |
+| **Entradas** | Productos con código de barras y SKU, solo SKU, solo código de barras o ninguno; valores con letras, guiones y barras |
+| **Resultado esperado** | La etiqueta lleva, en este orden, código de barras, SKU o el id del producto: el mismo orden con el que el servidor resuelve lo escaneado, así que lo impreso siempre encuentra su producto. El QR y las barras (Code 128) se generan como SVG que escala con la etiqueta y sin texto del usuario dentro. Valores distintos dan dibujos distintos |
+| **Criterio de aprobación** | Las once verificaciones pasan |
+| **Dependencias** | Ninguna |
+
 ---
 
 ## 3. Procedimiento de Pruebas (Test Procedure)
@@ -210,13 +236,15 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-01 · Aislamiento multi-tenant | 3 | ✅ Aprobado | 1.01 s (suite) |
 | PS-02 · Validación JSONB | 6 | ✅ Aprobado | — |
 | PS-03 · Inventario no negativo | 5 | ✅ Aprobado | — |
-| PS-04 · Caja y cobro de mostrador | 73 | ✅ Aprobado | — |
+| PS-04 · Caja y cobro de mostrador | 80 | ✅ Aprobado | — |
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
 | PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
 | PC-05 · ExploreComponent | 11 | ✅ Aprobado | — |
 | PC-06 · Matemática del cobro | 26 | ✅ Aprobado | — |
-| **TOTAL** | **156** | **9 de 9 aprobados** | |
+| PC-07 · Lógica del escáner | 13 | ✅ Aprobado | — |
+| PC-08 · Etiquetas de producto | 11 | ✅ Aprobado | — |
+| **TOTAL** | **187** | **11 de 11 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
@@ -273,3 +301,5 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PC-02 | `Kard-client/src/app/auth/login/login.component.spec.ts` |
 | PC-03 | `Kard-client/src/app/core/guards/auth.guard.spec.ts` |
 | PC-06 | `Kard-client/src/app/dashboard/pos/pos-math.spec.ts` |
+| PC-07 | `Kard-client/src/app/dashboard/pos/scan-logic.spec.ts` |
+| PC-08 | `Kard-client/src/app/dashboard/products/labels.spec.ts` |

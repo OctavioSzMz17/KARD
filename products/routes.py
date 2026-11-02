@@ -85,6 +85,25 @@ def low_stock(
 
 
 @router.get(
+    "/lookup",
+    response_model=ProductResponse,
+    summary="Find a product by what a scanner read: barcode, SKU or id",
+)
+def lookup_product(
+    code: str = Query(..., min_length=1, max_length=120, description="Código leído por el escáner"),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProductResponse:
+    """
+    Resuelve el código que lee el escáner del punto de venta.
+
+    Va por query y no por ruta porque un SKU puede llevar `/`. Debe declararse
+    antes de `/{product_id}`, o "lookup" se tomaría por un id de producto.
+    """
+    return ProductService(db).find_by_code(code, current_user)
+
+
+@router.get(
     "/{product_id}",
     response_model=ProductResponse,
     summary="Get a single product by id",

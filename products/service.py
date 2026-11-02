@@ -126,6 +126,25 @@ class ProductService:
         product = self._require_product(product_id, current_user.tenant_id)
         return self._to_response(product)
 
+    def find_by_code(self, code: str, current_user: CurrentUser) -> ProductResponse:
+        """
+        Producto que corresponde a un código escaneado.
+
+        Orden: código de barras exacto, SKU (sin distinguir mayúsculas) y, por
+        último, el id del producto. El id cubre las etiquetas de productos que
+        no tienen ni código de barras ni SKU: se imprimen con su id.
+        """
+        code = code.strip()
+        tenant_id = current_user.tenant_id
+        product = (
+            self.products.get_by_code(tenant_id, "barcode", code)
+            or self.products.get_by_code(tenant_id, "sku", code)
+            or self.products.get_by_id(tenant_id, code)
+        )
+        if product is None:
+            raise ProductNotFoundError(code)
+        return self._to_response(product)
+
     def update_product(
         self, product_id: str, payload: ProductUpdate, current_user: CurrentUser
     ) -> ProductResponse:

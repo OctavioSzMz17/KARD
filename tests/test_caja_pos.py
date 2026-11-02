@@ -29,6 +29,7 @@ from core.exceptions import (
     DuplicateProductCodeError,
     InsufficientPaymentError,
     InvalidDiscountError,
+    ProductNotFoundError,
 )
 from orders.models import CreatePosSaleRequest
 from orders.money import change_for, discount_amount, order_total, to_money
@@ -621,3 +622,51 @@ class TestCodigosDeProducto:
         r = svc.update_product("p_a", ProductUpdate(price="75"), tenant_a_user)
 
         assert r.sku == "UNO"
+
+
+class TestBusquedaPorCodigoEscaneado:
+    """Lo que lee la cámara del punto de venta: código de barras, SKU o el id impreso en la etiqueta."""
+
+    def _con_taco(self, service_factory, tenant_a_user):
+        svc = service_factory()
+        creado = svc.create_product(alta("Taco", sku="TAC-01", barcode="7501234567890"), tenant_a_user)
+        return svc, creado
+
+    def test_encuentra_por_codigo_de_barras(self, service_factory, tenant_a_user):
+        svc, creado = self._con_taco(service_factory, tenant_a_user)
+        assert svc.find_by_code("7501234567890", tenant_a_user).product_id == creado.product_id
+
+    def test_encuentra_por_sku_sin_distinguir_mayusculas(self, service_factory, tenant_a_user):
+        svc, creado = self._con_taco(service_factory, tenant_a_user)
+        assert svc.find_by_code("tac-01", tenant_a_user).product_id == creado.product_id
+
+    def test_encuentra_por_id_cuando_la_etiqueta_no_tiene_otro_codigo(self, service_factory, tenant_a_user):
+        """Un producto sin SKU ni código de barras se etiqueta con su id."""
+        svc = service_factory()
+        creado = svc.create_product(alta("Café"), tenant_a_user)
+        assert svc.find_by_code(creado.product_id, tenant_a_user).name == "Café"
+
+    def test_ignora_espacios_alrededor_del_codigo(self, service_factory, tenant_a_user):
+        """Algunos lectores añaden un salto de línea o un espacio al final."""
+        svc, creado = self._con_taco(service_factory, tenant_a_user)
+        assert svc.find_by_code("  7501234567890\n", tenant_a_user).product_id == creado.product_id
+
+    def test_un_codigo_desconocido_es_404(self, service_factory, tenant_a_user):
+        svc, _ = self._con_taco(service_factory, tenant_a_user)
+        with pytest.raises(ProductNotFoundError):
+            svc.find_by_code("0000000000000", tenant_a_user)
+
+    def test_no_encuentra_productos_de_otro_negocio(
+        self, service_factory, tenant_a_user, tenant_b_user
+    ):
+        """El tenant sale del token: el código de otro negocio no existe para este."""
+        svc, creado = self._con_taco(service_factory, tenant_a_user)
+        for code in ("7501234567890", "TAC-01", creado.product_id):
+            with pytest.raises(ProductNotFoundError):
+                svc.find_by_code(code, tenant_b_user)
+
+    def test_no_encuentra_productos_eliminados(self, service_factory, tenant_a_user):
+        svc, creado = self._con_taco(service_factory, tenant_a_user)
+        svc.soft_delete_product(creado.product_id, tenant_a_user)
+        with pytest.raises(ProductNotFoundError):
+            svc.find_by_code("7501234567890", tenant_a_user)
