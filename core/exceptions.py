@@ -161,3 +161,34 @@ class DuplicateProductCodeError(Exception):
         self.field = field
         self.value = value
 
+
+class TeamHierarchyError(Exception):
+    """
+    Alguien intenta registrar o modificar a una persona de su mismo nivel o
+    superior, o dar un puesto que no le corresponde dar (por ejemplo, un
+    subgerente nombrando a otro subgerente).
+    """
+
+
+class DeviceNotAuthorizedError(Exception):
+    """Cobrar (u otra acción de caja) desde un equipo que la gerencia no autorizó hoy, o cuya autorización venció."""
+
+
+class ChallengeNotFoundError(Exception):
+    """El QR no existe, ya se usó o no corresponde a quien lo consulta. No se distingue, a propósito."""
+
+
+class ChallengeExpiredError(Exception):
+    """El QR caducó: la computadora debe mostrar uno nuevo."""
+
+
+class WrongVerificationCodeError(Exception):
+    """El código de 4 dígitos no coincide con el que muestra la computadora."""
+
+
+class PermissionDeniedError(Exception):
+    """Falta el permiso para esta acción concreta (la ruta ya dejó pasar, el servicio decide el caso)."""
+
+
+class TooManyChallengesError(Exception):
+    """Demasiados QR pedidos desde la misma dirección en poco tiempo."""

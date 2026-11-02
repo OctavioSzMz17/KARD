@@ -25,7 +25,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from core.dependencies import CurrentUser, get_current_user
+from core.dependencies import CurrentUser, require_permission
+from core import permissions as P
 from db.database import get_db
 from products.models import (
     ProductCreate,
@@ -48,7 +49,7 @@ router = APIRouter()
 )
 def create_product(
     payload: ProductCreate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> ProductResponse:
     return ProductService(db).create_product(payload, current_user)
@@ -64,7 +65,7 @@ def list_products(
     page_size: int = Query(default=20, ge=1, le=100),
     search: Optional[str] = Query(default=None, max_length=500, description="Filter by name (case-insensitive)"),
     product_type: Optional[str] = Query(default=None, description="Filter by product_type: insumo | final"),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_READ)),
     db: Session = Depends(get_db),
 ) -> ProductListResponse:
     return ProductService(db).list_products(
@@ -78,7 +79,7 @@ def list_products(
     summary="Products whose stock has fallen below their alert threshold",
 )
 def low_stock(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_READ)),
     db: Session = Depends(get_db),
 ) -> list[ProductResponse]:
     return ProductService(db).get_low_stock(current_user)
@@ -91,7 +92,7 @@ def low_stock(
 )
 def lookup_product(
     code: str = Query(..., min_length=1, max_length=120, description="Código leído por el escáner"),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_READ)),
     db: Session = Depends(get_db),
 ) -> ProductResponse:
     """
@@ -110,7 +111,7 @@ def lookup_product(
 )
 def get_product(
     product_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_READ)),
     db: Session = Depends(get_db),
 ) -> ProductResponse:
     return ProductService(db).get_product(product_id, current_user)
@@ -124,7 +125,7 @@ def get_product(
 def update_product(
     product_id: str,
     payload: ProductUpdate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> ProductResponse:
     return ProductService(db).update_product(product_id, payload, current_user)
@@ -137,7 +138,7 @@ def update_product(
 )
 def delete_product(
     product_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> None:
     ProductService(db).soft_delete_product(product_id, current_user)
@@ -151,7 +152,7 @@ def delete_product(
 def sell_product(
     product_id: str,
     payload: StockChangeRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.INVENTORY_ADJUST)),
     db: Session = Depends(get_db),
 ) -> StockChangeResponse:
     return ProductService(db).sell_product(product_id, payload, current_user)
@@ -165,7 +166,7 @@ def sell_product(
 def restock_product(
     product_id: str,
     payload: StockChangeRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.INVENTORY_ADJUST)),
     db: Session = Depends(get_db),
 ) -> StockChangeResponse:
     return ProductService(db).restock_product(product_id, payload, current_user)

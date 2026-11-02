@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from billing.models import CheckoutRequest, CheckoutResponse, PlanInfo
 from billing.service import BillingService
-from core.dependencies import CurrentUser, get_current_user
+from core.dependencies import CurrentUser, require_permission
+from core import permissions as P
 from db.database import get_db
 
 router = APIRouter()
@@ -31,7 +32,7 @@ router = APIRouter()
 )
 def create_checkout(
     payload: CheckoutRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.BILLING_MANAGE)),
     db: Session = Depends(get_db),
 ) -> CheckoutResponse:
     """
@@ -49,7 +50,7 @@ def create_checkout(
     summary="Subscription state of the authenticated business",
 )
 def get_plan(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.BILLING_MANAGE)),
     db: Session = Depends(get_db),
 ) -> PlanInfo:
     return BillingService(db).get_plan_info(current_user)

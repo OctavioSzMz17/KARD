@@ -18,6 +18,12 @@ from core.exceptions import (
     CartEmptyError,
     CartUnavailableError,
     CashClosedError,
+    ChallengeExpiredError,
+    ChallengeNotFoundError,
+    DeviceNotAuthorizedError,
+    PermissionDeniedError,
+    TooManyChallengesError,
+    WrongVerificationCodeError,
     CashSessionAlreadyOpenError,
     CashSessionNotFoundError,
     ConsumerAlreadyExistsError,
@@ -39,8 +45,10 @@ from core.exceptions import (
     StorefrontNotFoundError,
     TenantAccessError,
     TenantAlreadyExistsError,
+    TeamHierarchyError,
     TenantNotFoundError,
     UserCreationNotAllowedError,
+    UserNotFoundError,
 )
 from billing.routes import router as billing_router
 from cash.routes import router as cash_router
@@ -52,6 +60,8 @@ from recipes.routes import router as recipes_router
 from images.routes import router as images_router
 from products.routes import router as products_router
 from saasadmin.routes import router as saasadmin_router
+from devices.routes import router as devices_router
+from team.routes import router as team_router
 from settings.routes import router as settings_router
 from storefront.routes import router as storefront_router
 
@@ -240,6 +250,54 @@ def _coded(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"success": False, "code": code, "error": message})
 
 
+@app.exception_handler(DeviceNotAuthorizedError)
+async def device_not_authorized_exception_handler(request: Request, exc: DeviceNotAuthorizedError):
+    """Cobrar o abrir sesión desde un equipo que la gerencia no autorizó hoy → 403."""
+    return _coded(403, "DEVICE_NOT_AUTHORIZED", str(exc) or "Este equipo no está autorizado hoy")
+
+
+@app.exception_handler(ChallengeNotFoundError)
+async def challenge_not_found_exception_handler(request: Request, exc: ChallengeNotFoundError):
+    """El QR no existe, ya se usó o es de otro negocio: no se distingue → 404."""
+    return _coded(404, "CHALLENGE_NOT_FOUND", "Este código ya no es válido")
+
+
+@app.exception_handler(ChallengeExpiredError)
+async def challenge_expired_exception_handler(request: Request, exc: ChallengeExpiredError):
+    """El QR caducó: la computadora debe mostrar uno nuevo → 410."""
+    return _coded(410, "CHALLENGE_EXPIRED", "El código caducó; pide uno nuevo")
+
+
+@app.exception_handler(WrongVerificationCodeError)
+async def wrong_code_exception_handler(request: Request, exc: WrongVerificationCodeError):
+    """El código de 4 dígitos no coincide con el de la pantalla → 400."""
+    return _coded(400, "WRONG_CODE", "El código no coincide con el de la pantalla")
+
+
+@app.exception_handler(PermissionDeniedError)
+async def permission_denied_exception_handler(request: Request, exc: PermissionDeniedError):
+    """Falta permiso para esta acción concreta → 403."""
+    return _coded(403, "FORBIDDEN", str(exc) or "No tienes permiso para esta operación")
+
+
+@app.exception_handler(TooManyChallengesError)
+async def too_many_challenges_exception_handler(request: Request, exc: TooManyChallengesError):
+    """Demasiados QR pedidos en poco tiempo desde esta dirección → 429."""
+    return _coded(429, "TOO_MANY_REQUESTS", "Demasiados intentos; espera unos minutos")
+
+
+@app.exception_handler(TeamHierarchyError)
+async def team_hierarchy_exception_handler(request: Request, exc: TeamHierarchyError):
+    """Actuar sobre alguien de su nivel o superior, o dar un puesto que no le toca → 403."""
+    return _coded(403, "TEAM_HIERARCHY", str(exc))
+
+
+@app.exception_handler(UserNotFoundError)
+async def user_not_found_exception_handler(request: Request, exc: UserNotFoundError):
+    """La persona no existe en este negocio (o es de otro: no se distingue) → 404."""
+    return _coded(404, "USER_NOT_FOUND", "No existe esa persona en tu equipo")
+
+
 @app.exception_handler(CashClosedError)
 async def cash_closed_exception_handler(request: Request, exc: CashClosedError):
     """Cobrar sin caja abierta → 409; el punto de venta responde pidiendo abrirla."""
@@ -292,6 +350,8 @@ app.include_router(cart_router, prefix="/api/v1/cart", tags=["cart"])
 app.include_router(orders_router, prefix="/api/v1/orders", tags=["orders"])
 app.include_router(cash_router, prefix="/api/v1/cash", tags=["cash"])
 app.include_router(settings_router, prefix="/api/v1/settings", tags=["settings"])
+app.include_router(team_router, prefix="/api/v1/team", tags=["team"])
+app.include_router(devices_router, prefix="/api/v1/device-auth", tags=["device-auth"])
 
 
 if __name__ == "__main__":

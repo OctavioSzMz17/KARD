@@ -15,9 +15,9 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from auth.models import CreateUserRequest, LoginRequest, TenantRegistrationRequest, TenantRegistrationResponse, TokenResponse, UserResponse
+from auth.models import CreateUserRequest, LoginRequest, MeResponse, TenantRegistrationRequest, TenantRegistrationResponse, TokenResponse, UserResponse
 from auth.service import AuthService
-from core.dependencies import CurrentUser, get_optional_current_user
+from core.dependencies import CurrentUser, get_current_user, get_optional_current_user
 from db.database import get_db
 
 router = APIRouter()
@@ -76,3 +76,17 @@ def register_tenant(payload: TenantRegistrationRequest, db: Session = Depends(ge
 )
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     return AuthService(db).login(payload, ip_address=_client_ip(request))
+
+
+@router.get(
+    "/me",
+    response_model=MeResponse,
+    summary="Who am I and what can I do — read from the database on every call",
+)
+def me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
+    """
+    Cualquier cuenta autenticada puede preguntar por sí misma; no pide permiso
+    porque solo devuelve lo suyo. La pantalla lo usa al arrancar para no fiarse
+    de lo que guardó al iniciar sesión: si cambiaron su puesto, lo sabe ya.
+    """
+    return AuthService.me(current_user)

@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
 
+    # Equipos autorizados (cajas registradoras): cuánto dura la autorización de
+    # una computadora y cuánto vive un QR antes de pedir uno nuevo.
+    DEVICE_TTL_HOURS: int = 14
+    CHALLENGE_TTL_SECONDS: int = 150
+
     # Redis (token blacklist, login-attempt counters)
     REDIS_URL: str
 

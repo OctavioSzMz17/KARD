@@ -16,6 +16,7 @@ from jose import JWTError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from core.permissions import permissions_of, position_of
 from core.redis_client import get_redis
 from core.security import decode_token
 from db.database import get_db
@@ -49,6 +50,22 @@ class CurrentUser(BaseModel):
     business_type: str
     role: str
     email: str
+    # Puesto dentro del negocio (gerente, subgerente…). None = empleado o dueño.
+    job_title: Optional[str] = None
+    full_name: Optional[str] = None
+    employee_code: Optional[str] = None
+
+    @property
+    def position(self) -> str:
+        """Puesto efectivo (dueño, gerente, subgerente, encargado de área, empleado)."""
+        return position_of(self.role, self.job_title)
+
+    @property
+    def permissions(self) -> frozenset[str]:
+        return permissions_of(self.position)
+
+    def can(self, permission: str) -> bool:
+        return permission in self.permissions
 
 
 # Estas dependencias son `def`, NO `async def`, a propósito: por dentro consultan
@@ -116,6 +133,9 @@ def get_current_user(
         business_type=business_type,
         role=db_user.role,
         email=db_user.email,
+        job_title=db_user.job_title,
+        full_name=db_user.full_name,
+        employee_code=db_user.employee_code,
     )
 
 
@@ -216,10 +236,37 @@ def require_role(*roles: str):
             )
         return current_user
 
+    _check.roles = roles  # type: ignore[attr-defined]
+    return _check
+
+
+def require_permission(*permissions: str):
+    """
+    Dependencia que deja pasar solo a quien tenga ALGUNO de `permissions`.
+
+    Es la única forma de proteger una ruta del negocio: el puesto y los
+    permisos se leen de la base en cada petición (`get_current_user` recarga al
+    usuario), así que un cambio de puesto o una baja surten efecto al instante,
+    sin esperar a que caduque el token.
+
+    La función devuelta lleva `.permissions` para que las pruebas puedan
+    comprobar que ninguna ruta del negocio quedó sin guardia.
+    """
+
+    def _check(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not any(current_user.can(p) for p in permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para esta operación",
+            )
+        return current_user
+
+    _check.permissions = permissions  # type: ignore[attr-defined]
     return _check
 
 
 __all__ = [
+    "require_permission",
     "oauth2_scheme",
     "oauth2_scheme_optional",
     "CurrentUser",

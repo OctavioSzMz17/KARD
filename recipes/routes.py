@@ -13,7 +13,8 @@ current state after a mutation.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from core.dependencies import CurrentUser, get_current_user
+from core.dependencies import CurrentUser, require_permission
+from core import permissions as P
 from db.database import get_db
 from recipes.models import RecipeItemCreate, RecipeResponse
 from recipes.service import RecipeService
@@ -28,7 +29,7 @@ router = APIRouter()
 )
 def get_recipe(
     product_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_READ)),
     db: Session = Depends(get_db),
 ) -> RecipeResponse:
     return RecipeService(db).get_recipe(product_id, current_user)
@@ -42,7 +43,7 @@ def get_recipe(
 def add_recipe_item(
     product_id: str,
     payload: RecipeItemCreate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> RecipeResponse:
     return RecipeService(db).add_item(product_id, payload, current_user)
@@ -56,7 +57,7 @@ def add_recipe_item(
 def remove_recipe_item(
     product_id: str,
     insumo_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> RecipeResponse:
     return RecipeService(db).remove_item(product_id, insumo_id, current_user)

@@ -19,6 +19,7 @@ from audit_logging.audit import log_auth_event, log_operation
 from auth.models import (
     CreateUserRequest,
     LoginRequest,
+    MeResponse,
     TenantRegistrationRequest,
     TenantRegistrationResponse,
     TokenResponse,
@@ -35,6 +36,7 @@ from core.exceptions import (
     TenantNotFoundError,
     UserCreationNotAllowedError,
 )
+from core.permissions import POSITION_LABELS, permissions_of, position_of
 from core.redis_client import get_redis
 from core.security import create_token, hash_password, verify_password
 from db.models import Tenant, User
@@ -93,6 +95,7 @@ class AuthService:
             email=email,
             password_hash=hash_password(payload.password),
             role=UserRole.business_admin.value,
+            employee_code="0001",
             is_active=True,
         )
 
@@ -141,6 +144,7 @@ class AuthService:
             role=user.role,
             business_type=tenant.business_type,
             slug=tenant.slug,
+            **self._identity(user),
         )
 
     def _generate_unique_slug(self, business_name: str) -> str:
@@ -201,6 +205,10 @@ class AuthService:
             email=email,
             password_hash=hash_password(payload.password),
             role=payload.role.value,
+            # La plataforma (`saas_admin`) no pertenece a un equipo: no lleva código.
+            employee_code=(
+                None if payload.role == UserRole.saas_admin else self.users.next_employee_code(target_tenant_id)
+            ),
             is_active=True,
         )
 
@@ -364,4 +372,33 @@ class AuthService:
             tenant_id=tenant.id,
             role=user.role,
             business_type=tenant.business_type,
+            **AuthService._identity(user),
+        )
+
+    @staticmethod
+    def _identity(user: User) -> dict:
+        """Puesto, nombre, código y permisos de una cuenta, para la pantalla."""
+        position = position_of(user.role, user.job_title)
+        return {
+            "position": position,
+            "position_label": POSITION_LABELS[position],
+            "full_name": user.full_name,
+            "employee_code": user.employee_code,
+            "permissions": sorted(permissions_of(position)),
+        }
+
+    @staticmethod
+    def me(current_user: CurrentUser) -> MeResponse:
+        """Quién soy y qué puedo hacer, leído de la base en esta petición."""
+        return MeResponse(
+            user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
+            business_type=current_user.business_type,
+            role=current_user.role,
+            email=current_user.email,
+            position=current_user.position,
+            position_label=POSITION_LABELS[current_user.position],
+            full_name=current_user.full_name,
+            employee_code=current_user.employee_code,
+            permissions=sorted(current_user.permissions),
         )

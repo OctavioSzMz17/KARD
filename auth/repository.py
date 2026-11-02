@@ -9,6 +9,7 @@ and testable in one place.
 
 from typing import Optional
 
+from sqlalchemy import Integer, case, cast, func
 from sqlalchemy.orm import Session
 
 from db.models import Tenant, User
@@ -86,10 +87,47 @@ class UserRepository:
             .first()
         )
 
+    def get_by_employee_code(self, tenant_id: str, code: str) -> Optional[User]:
+        """Una persona por su código de empleado; el código es único DENTRO de cada negocio."""
+        return (
+            self.db.query(User)
+            .filter(User.tenant_id == tenant_id, User.employee_code == code)
+            .first()
+        )
+
     def create(self, user: User) -> User:
         self.db.add(user)
         self.db.flush()
         return user
+
+    def save(self, user: User) -> User:
+        self.db.add(user)
+        self.db.flush()
+        return user
+
+    def list_for_tenant(self, tenant_id: str) -> list[User]:
+        """Todo el equipo de un negocio. La plataforma (`saas_admin`) no forma parte de ningún equipo."""
+        return (
+            self.db.query(User)
+            .filter(User.tenant_id == tenant_id, User.role != "saas_admin")
+            .all()
+        )
+
+    def next_employee_code(self, tenant_id: str) -> str:
+        """
+        Siguiente código de empleado del negocio: 0001, 0002… (el máximo actual + 1).
+
+        Los códigos los genera siempre el sistema, así que son todos numéricos;
+        aun así se filtra con CASE para no fallar si algún día se importa uno
+        a mano. Dos altas simultáneas pueden calcular el mismo: el índice único
+        `uq_users_tenant_employee_code` lo detecta y quien llama reintenta.
+        """
+        numeric = case(
+            (User.employee_code.op("~")("^[0-9]+$"), cast(User.employee_code, Integer)),
+            else_=None,
+        )
+        top = self.db.query(func.max(numeric)).filter(User.tenant_id == tenant_id).scalar() or 0
+        return str(int(top) + 1).zfill(4)
 
     def record_login(self, user: User) -> User:
         """Stamp `last_login` on a successful authentication."""

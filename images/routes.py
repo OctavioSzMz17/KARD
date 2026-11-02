@@ -15,7 +15,8 @@ the request body or path (Rules.md section 7).
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from core.dependencies import CurrentUser, get_current_user
+from core.dependencies import CurrentUser, require_permission
+from core import permissions as P
 from db.database import get_db
 from images.models import ImageCreate, ImageResponse, ImageUpdate
 from images.service import ImageService
@@ -32,7 +33,7 @@ router = APIRouter()
 def add_image(
     product_id: str,
     payload: ImageCreate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> ImageResponse:
     return ImageService(db).add_image(product_id, payload, current_user)
@@ -45,7 +46,7 @@ def add_image(
 )
 def list_images(
     product_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_READ)),
     db: Session = Depends(get_db),
 ) -> list[ImageResponse]:
     return ImageService(db).list_images(product_id, current_user)
@@ -60,7 +61,7 @@ def update_image(
     product_id: str,
     image_id: str,
     payload: ImageUpdate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> ImageResponse:
     return ImageService(db).update_image(product_id, image_id, payload, current_user)
@@ -74,7 +75,7 @@ def update_image(
 def delete_image(
     product_id: str,
     image_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.PRODUCTS_WRITE)),
     db: Session = Depends(get_db),
 ) -> None:
     ImageService(db).delete_image(product_id, image_id, current_user)

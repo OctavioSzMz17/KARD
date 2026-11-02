@@ -8,6 +8,7 @@ GET  /api/v1/cash/sessions      historial de cortes
 GET  /api/v1/cash/sessions/{id} un corte (para reimprimirlo)
 """
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
@@ -20,8 +21,10 @@ from cash.models import (
     OpenCashRequest,
 )
 from cash.service import CashService
-from core.dependencies import CurrentUser, get_current_user
+from core.dependencies import CurrentUser, require_permission
+from core import permissions as P
 from db.database import get_db
+from devices.repository import DeviceRepository
 
 router = APIRouter()
 
@@ -32,7 +35,7 @@ router = APIRouter()
     summary="Turno de caja abierto, con sus cifras en vivo",
 )
 def current_session(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.CASH_VIEW)),
     db: Session = Depends(get_db),
 ):
     """`null` cuando la caja está cerrada: el punto de venta pide abrirla."""
@@ -47,7 +50,7 @@ def current_session(
 )
 def open_cash(
     payload: OpenCashRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.CASH_MANAGE)),
     db: Session = Depends(get_db),
 ) -> CashSessionResponse:
     return CashService(db).open(current_user, payload)
@@ -60,10 +63,15 @@ def open_cash(
 )
 def close_cash(
     payload: CloseCashRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.CASH_MANAGE)),
     db: Session = Depends(get_db),
 ) -> CashSessionResponse:
-    return CashService(db).close(current_user, payload)
+    closed = CashService(db).close(current_user, payload)
+    # Con el corte termina el turno: los equipos que la gerencia autorizó para
+    # el día dejan de estar autorizados, y mañana se vuelven a autorizar.
+    DeviceRepository(db).revoke_all(current_user.tenant_id, datetime.now(timezone.utc))
+    db.commit()
+    return closed
 
 
 @router.get(
@@ -74,7 +82,7 @@ def close_cash(
 def list_sessions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.CASH_MANAGE)),
     db: Session = Depends(get_db),
 ) -> CashSessionListResponse:
     return CashService(db).list_sessions(current_user.tenant_id, page, page_size)
@@ -87,7 +95,7 @@ def list_sessions(
 )
 def get_session(
     session_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.CASH_MANAGE)),
     db: Session = Depends(get_db),
 ) -> CashSessionResponse:
     return CashService(db).get_session(current_user.tenant_id, session_id)

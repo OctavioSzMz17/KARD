@@ -112,6 +112,32 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las 80 verificaciones pasan, y cada regla falla si se la quita (se comprobó con tres mutaciones: sin el candado de caja cerrada, con el efectivo esperado calculado sobre el bruto, y con redondeo al par) |
 | **Dependencias** | Migración `007_caja_punto_de_venta.sql` aplicada para la verificación contra base real |
 
+### PS-05 · Equipo, puestos y permisos
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-05` |
+| **Elemento** | `core/permissions.py` · `require_permission` · `TeamService` · todas las rutas del negocio |
+| **Requisito cubierto** | Que cada persona del negocio haga solo lo que su puesto permite, y que nadie pueda saltarse la jerarquía |
+| **Prioridad** | Crítica (seguridad) |
+| **Entradas** | Los cinco puestos (dueño, gerente, subgerente, encargado de área, empleado); altas, cambios de puesto, bajas y cambios de contraseña de cada uno sobre cada otro; todas las rutas del negocio llamadas por un empleado y por un encargado; personas de otro negocio; códigos de empleado simultáneos; un puesto desconocido en la base |
+| **Resultado esperado** | El empleado solo cobra, consulta el catálogo y ve si la caja está abierta. El encargado de área suma ajustar inventario. Gerente y subgerente supervisan pero no tocan suscripción ni personalización. El dueño puede todo. Nadie registra ni modifica a alguien de su nivel o superior, nadie se sube el puesto ni se da de baja a sí mismo, y el dueño no queda a merced de nadie. Un puesto desconocido cae al más bajo, no al más alto. Una persona de otro negocio responde 404 (no se confirma que exista). Los códigos de empleado son por negocio y los genera el sistema, también con altas simultáneas. La contraseña nunca llega a la bitácora. **Ninguna ruta del negocio queda sin guardia de permiso**, y cada una pide exactamente el acordado. Un cambio de puesto o una baja surten efecto de inmediato con el mismo token |
+| **Criterio de aprobación** | Las 140 verificaciones pasan; las de punta a punta contra la base real también (se revierten solas). Cinco mutaciones de seguridad hacen fallar la suite: la jerarquía que deja tocar al par, una ruta de escritura sin guardia, un permiso de más al empleado, un puesto desconocido que cae al dueño y una consulta sin filtrar por negocio (esta última solo la detecta la prueba contra la base real) |
+| **Dependencias** | Migración `008_equipo_y_puestos.sql` aplicada para la verificación contra base real |
+
+### PS-06 · Equipos autorizados y acceso por QR
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-06` |
+| **Elemento** | `DeviceService` · `assert_can_charge` · rutas `/device-auth` · `UserRepository.get_by_employee_code` |
+| **Requisito cubierto** | Que encargados y empleados solo cobren desde una computadora que la gerencia autorizó hoy, y que ese acceso no se pueda robar fotografiando un QR |
+| **Prioridad** | Crítica (seguridad) |
+| **Entradas** | QR de autorización y de desbloqueo; aprobación por dueño, gerente, subgerente, encargado y empleado; códigos de 4 dígitos buenos y malos; QR caducados, ya usados, anulados y de otro negocio; reclamos con el secreto correcto y con uno ajeno; entrada con correo o código de empleado (propios, de otro negocio, de bajas, con contraseña mala); cobros de cada puesto con y sin equipo, y con el equipo de otro negocio; cierre de caja |
+| **Resultado esperado** | Quien fotografía el QR no puede reclamar nada: el resultado solo se entrega a la computadora que guardó el secreto (el servidor solo conoce su hash) y una sola vez. Autorizar un equipo exige teclear el número de SU pantalla, con tres intentos; solo la gerencia autoriza. Un QR de otro negocio no existe. El token del equipo no queda en la base, solo su hash. Encargados y empleados cobran solo desde un equipo autorizado de su negocio (403 `DEVICE_NOT_AUTHORIZED` si no); dueño, gerente y subgerente, desde cualquier lugar. El código de empleado se busca solo dentro del negocio del equipo. Al cerrar la caja todos los equipos del negocio quedan desautorizados. Las únicas rutas públicas son pedir un QR y recogerlo |
+| **Criterio de aprobación** | Las 76 verificaciones pasan; las 94 de punta a punta contra la base real también (se revierten solas). Siete mutaciones de seguridad hacen fallar la suite: reclamo sin secreto, cobrar sin equipo, autorizar sin el número, QR de otro negocio visible, token guardado en claro, intentos de código sin límite y código de empleado buscado en todos los negocios (esta última solo la detecta la prueba contra la base real) |
+| **Dependencias** | Migración `009_equipos_autorizados.sql` aplicada para la verificación contra base real |
+
 ### PC-01 · Custodia de sesión y separación de identidades
 
 | Campo | Contenido |
@@ -203,6 +229,58 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las once verificaciones pasan |
 | **Dependencias** | Ninguna |
 
+### PC-09 · Permisos en la pantalla
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-09` |
+| **Elemento** | `AuthService.can` · `permissionGuard` · `permissions.ts` |
+| **Requisito cubierto** | Que cada puesto vea en el menú solo lo suyo y no caiga en una pantalla en blanco al pedir una ajena (el servidor es quien protege; esto es comodidad y fidelidad) |
+| **Prioridad** | Alta |
+| **Entradas** | Sesiones de empleado, supervisor, dueño, anónima y de cliente; sesiones antiguas sin lista de permisos; una lista de permisos vacía; un cambio de perfil en caliente |
+| **Resultado esperado** | Se usan los permisos que manda el servidor. Una sesión antigua de dueño conserva todo y una de personal queda solo con lo básico, nunca con más. Una lista vacía no cae al respaldo. Quien pide una pantalla que no le toca va a la primera que sí le corresponde (un empleado, a Cobrar), sin ciclos de redirección |
+| **Criterio de aprobación** | Las dieciocho verificaciones pasan |
+| **Dependencias** | Ninguna |
+
+### PC-10 · Contraseña inicial y datos del equipo
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-10` |
+| **Elemento** | `team-logic.ts` (usado por la pantalla Equipo) |
+| **Requisito cubierto** | Que la contraseña inicial que genera la pantalla sea válida para el servidor y fácil de leer o dictar |
+| **Prioridad** | Media |
+| **Entradas** | 500 contraseñas generadas; contraseñas cortas, sin número y sin letra; nombres de una o varias palabras, vacíos y con espacios de más |
+| **Resultado esperado** | Toda contraseña generada cumple lo que exige el servidor (letra y número), tiene 12 caracteres, no usa caracteres que se confunden (0, O, 1, l, I) y no se repite. Las iniciales del avatar salen de las dos primeras palabras |
+| **Criterio de aprobación** | Las once verificaciones pasan |
+| **Dependencias** | Ninguna |
+
+### PC-11 · Acceso por QR y equipos autorizados (pantalla)
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-11` |
+| **Elemento** | `device-logic.ts` |
+| **Requisito cubierto** | Que el escáner del celular solo acepte QR de acceso de KARD, que un equipo vencido no se use y que una caja inactiva se bloquee |
+| **Prioridad** | Crítica (seguridad) |
+| **Entradas** | QR de acceso, de un producto, de un SKU, de un sitio ajeno y con caracteres raros; fechas de vencimiento válidas, rotas y ausentes; registros del equipo dañados; el secreto y su hash; periodos de inactividad |
+| **Resultado esperado** | Solo se acepta la dirección de aprobación de KARD o un identificador con la forma exacta; cualquier otro código nunca se manda al servidor. El identificador va en el fragmento de la dirección, que no viaja al servidor. Un equipo vencido o con registro dañado no entrega token. El secreto son 32 bytes aleatorios y al servidor solo se le manda su SHA-256. La caja se bloquea al cumplirse el límite sin actividad y cualquier gesto reinicia la cuenta |
+| **Criterio de aprobación** | Las veintidós verificaciones pasan |
+| **Dependencias** | Ninguna |
+
+### PC-12 · Pantalla de la caja registradora
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-12` |
+| **Elemento** | `RegisterModeComponent` |
+| **Requisito cubierto** | Que la contraseña nunca viaje en la dirección. Un formulario sin controlar se envía solo por GET y deja `?password=…` en el historial y en los registros; ya ocurrió una vez durante el desarrollo |
+| **Prioridad** | Crítica (seguridad) |
+| **Entradas** | El envío del formulario de entrada; un equipo autorizado y uno sin autorizar; datos completos y vacíos |
+| **Resultado esperado** | El envío nativo se frena, el formulario es de tipo POST, y la contraseña va en el cuerpo de la petición y nunca en la dirección. Sin datos no se llama al servidor. Un equipo sin autorizar muestra el QR y el número de verificación |
+| **Criterio de aprobación** | Las seis verificaciones pasan, y tres de ellas fallan si se vuelve a un formulario sin controlar (se comprobó con esa mutación) |
+| **Dependencias** | Ninguna |
+
 ---
 
 ## 3. Procedimiento de Pruebas (Test Procedure)
@@ -237,6 +315,8 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-02 · Validación JSONB | 6 | ✅ Aprobado | — |
 | PS-03 · Inventario no negativo | 5 | ✅ Aprobado | — |
 | PS-04 · Caja y cobro de mostrador | 80 | ✅ Aprobado | — |
+| PS-05 · Equipo, puestos y permisos | 140 | ✅ Aprobado | — |
+| PS-06 · Equipos autorizados y acceso por QR | 76 | ✅ Aprobado | — |
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
 | PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
@@ -244,7 +324,11 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PC-06 · Matemática del cobro | 26 | ✅ Aprobado | — |
 | PC-07 · Lógica del escáner | 13 | ✅ Aprobado | — |
 | PC-08 · Etiquetas de producto | 11 | ✅ Aprobado | — |
-| **TOTAL** | **187** | **11 de 11 aprobados** | |
+| PC-09 · Permisos en la pantalla | 18 | ✅ Aprobado | — |
+| PC-10 · Contraseña inicial y datos del equipo | 11 | ✅ Aprobado | — |
+| PC-11 · Acceso por QR y equipos autorizados | 22 | ✅ Aprobado | — |
+| PC-12 · Pantalla de la caja registradora | 6 | ✅ Aprobado | — |
+| **TOTAL** | **460** | **17 de 17 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
@@ -296,6 +380,9 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PS-01, PS-02, PS-03 | `Kard/tests/test_products.py` |
 | PS-04 | `Kard/tests/test_caja_pos.py` |
 | PS-04 contra base real (38 verificaciones, se revierten solas) | `Kard/tests/integracion/e2e_caja.py` |
+| PS-05 | `Kard/tests/test_equipo_permisos.py` |
+| PS-05 y PS-06 de punta a punta contra la base real (94 verificaciones, se revierten solas) | `Kard/tests/integracion/e2e_equipo.py` |
+| PS-06 | `Kard/tests/test_dispositivos.py` |
 | Dobles y fixtures | `Kard/tests/conftest.py` |
 | PC-01 | `Kard-client/src/app/core/services/auth.service.spec.ts` |
 | PC-02 | `Kard-client/src/app/auth/login/login.component.spec.ts` |
@@ -303,3 +390,7 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PC-06 | `Kard-client/src/app/dashboard/pos/pos-math.spec.ts` |
 | PC-07 | `Kard-client/src/app/dashboard/pos/scan-logic.spec.ts` |
 | PC-08 | `Kard-client/src/app/dashboard/products/labels.spec.ts` |
+| PC-09 | `Kard-client/src/app/core/guards/permission.guard.spec.ts` |
+| PC-10 | `Kard-client/src/app/dashboard/team/team-logic.spec.ts` |
+| PC-11 | `Kard-client/src/app/core/device-logic.spec.ts` |
+| PC-12 | `Kard-client/src/app/register-mode/register-mode.component.spec.ts` |

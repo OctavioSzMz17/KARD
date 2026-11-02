@@ -13,7 +13,8 @@ All require 🔒 business JWT. The tenant is always taken from the token
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from core.dependencies import CurrentUser, get_current_user
+from core.dependencies import CurrentUser, require_permission
+from core import permissions as P
 from db.database import get_db
 from settings.models import (
     BrandingResponse,
@@ -34,7 +35,7 @@ router = APIRouter()
     summary="Get the authenticated tenant's branding (logo, banner, theme)",
 )
 def get_branding(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.SETTINGS_MANAGE)),
     db: Session = Depends(get_db),
 ) -> BrandingResponse:
     return SettingsService(db).get_branding(current_user)
@@ -47,7 +48,7 @@ def get_branding(
 )
 def update_branding(
     payload: BrandingUpdate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.SETTINGS_MANAGE)),
     db: Session = Depends(get_db),
 ) -> BrandingResponse:
     return SettingsService(db).update_branding(payload, current_user)
@@ -59,7 +60,7 @@ def update_branding(
     summary="Get the authenticated tenant's storefront content (tagline, description, contact)",
 )
 def get_profile(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.SETTINGS_MANAGE)),
     db: Session = Depends(get_db),
 ) -> ProfileResponse:
     return SettingsService(db).get_profile(current_user)
@@ -72,7 +73,7 @@ def get_profile(
 )
 def update_profile(
     payload: ProfileUpdate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.SETTINGS_MANAGE)),
     db: Session = Depends(get_db),
 ) -> ProfileResponse:
     return SettingsService(db).update_profile(payload, current_user)
@@ -84,7 +85,7 @@ def update_profile(
     summary="Get the delivery modes this business offers",
 )
 def get_fulfillment(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.SETTINGS_MANAGE)),
     db: Session = Depends(get_db),
 ) -> FulfillmentResponse:
     return SettingsService(db).get_fulfillment(current_user)
@@ -97,7 +98,7 @@ def get_fulfillment(
 )
 def update_fulfillment(
     payload: FulfillmentUpdate,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.SETTINGS_MANAGE)),
     db: Session = Depends(get_db),
 ) -> FulfillmentResponse:
     """

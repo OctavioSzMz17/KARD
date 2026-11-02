@@ -99,6 +99,10 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(user_role_enum, nullable=False, default="business_admin")
     is_active = Column(Boolean, nullable=False, default=True)
+    # Equipo del negocio (migración 008): nombre, puesto y código de empleado.
+    full_name = Column(String(120), nullable=True)
+    job_title = Column(String(30), nullable=True)
+    employee_code = Column(String(12), nullable=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(
@@ -434,3 +438,46 @@ class StripeEvent(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<StripeEvent id={self.id!r} type={self.type!r}>"
+
+
+class Device(Base):
+    """
+    Una computadora que la gerencia autorizó para el día (una caja registradora).
+
+    El token del equipo vive solo en su navegador; aquí se guarda su hash, así
+    que una filtración de la base no entrega equipos autorizados.
+    """
+
+    __tablename__ = "devices"
+
+    id = Column(String(40), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True)
+    name = Column(String(60), nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    authorized_by = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_agent = Column(String(300), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AuthChallenge(Base):
+    """Un QR en pantalla esperando que un celular lo apruebe (autorizar un equipo o abrir sesión)."""
+
+    __tablename__ = "auth_challenges"
+
+    id = Column(String(40), primary_key=True)
+    kind = Column(String(10), nullable=False)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True)
+    device_id = Column(String(40), ForeignKey("devices.id", ondelete="CASCADE"), nullable=True)
+    secret_hash = Column(String(64), nullable=False)
+    verification_code = Column(String(4), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    user_agent = Column(String(300), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    status = Column(String(10), nullable=False, default="pending")
+    approved_by = Column(String(50), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    device_name = Column(String(60), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)

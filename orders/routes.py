@@ -18,12 +18,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from core import permissions as P
+from devices.dependencies import get_optional_device
+from devices.service import assert_can_charge
+from db.models import Device
 from core.dependencies import (
     CurrentConsumer,
     CurrentUser,
     get_current_consumer,
-    get_current_user,
     get_tenant_id,
+    require_permission,
 )
 from db.database import get_db
 from orders.models import (
@@ -71,7 +75,8 @@ def create_order(
 )
 def create_pos_sale(
     payload: CreatePosSaleRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(P.POS_SELL)),
+    device: Optional[Device] = Depends(get_optional_device),
     db: Session = Depends(get_db),
 ) -> OrderResponse:
     """
@@ -84,7 +89,11 @@ def create_pos_sale(
     Reusa el mismo motor que el checkout B2C — bloqueo de filas, descuento en
     cascada de insumos y bitácora atómica — así que una venta de mostrador
     mueve el inventario exactamente igual que una en línea.
+
+    Encargados y empleados solo cobran desde un equipo que la gerencia
+    autorizó hoy (cabecera `X-Device-Token`); dueño, gerente y subgerente, desde cualquiera.
     """
+    assert_can_charge(current_user, device)
     return OrderService(db).create_pos_sale(
         current_user.tenant_id,
         current_user.user_id,
@@ -112,6 +121,7 @@ def list_orders(
 # param la captura y "/sales" se interpreta como un order_id.
 @router.get(
     "/business/sales",
+    dependencies=[Depends(require_permission(P.SALES_READ))],
     response_model=SalesReportResponse,
     summary="Sales report for the authenticated business (B2B)",
 )
@@ -138,6 +148,7 @@ def list_business_sales(
 
 @router.patch(
     "/business/sales/{order_id}/status",
+    dependencies=[Depends(require_permission(P.SALES_MANAGE))],
     response_model=SaleResponse,
     summary="Update the status of one of the business's sales (B2B)",
 )

@@ -94,6 +94,28 @@ class TokenResponse(BaseModel):
     tenant_id: str
     role: str
     business_type: str
+    # Quién es dentro del negocio y qué puede hacer. La pantalla lo usa para
+    # mostrar solo lo que corresponde; el servidor lo vuelve a comprobar siempre.
+    position: str = "dueno"
+    position_label: str = "Dueño"
+    full_name: Optional[str] = None
+    employee_code: Optional[str] = None
+    permissions: list[str] = []
+
+
+class MeResponse(BaseModel):
+    """`GET /auth/me`: quién soy y qué puedo hacer, tal como está en la base ahora."""
+
+    user_id: str
+    tenant_id: str
+    business_type: str
+    role: str
+    email: EmailStr
+    position: str
+    position_label: str
+    full_name: Optional[str] = None
+    employee_code: Optional[str] = None
+    permissions: list[str]
 
 
 class TenantRegistrationRequest(BaseModel):
@@ -142,3 +164,8 @@ class TenantRegistrationResponse(BaseModel):
     role: str
     business_type: str
     slug: str
+    position: str = "dueno"
+    position_label: str = "Dueño"
+    full_name: Optional[str] = None
+    employee_code: Optional[str] = None
+    permissions: list[str] = []
