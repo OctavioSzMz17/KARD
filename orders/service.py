@@ -26,12 +26,14 @@ import json
 import logging
 from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cash.repository import CashRepository
 from core.exceptions import (
     CartEmptyError,
     CashClosedError,
+    IdempotencyConflictError,
     InvalidMetadataError,
     OrderNotFoundError,
     OrderStockConflictError,
@@ -41,6 +43,7 @@ from core.exceptions import (
 from core.redis_client import get_redis
 from core.tenant_config import read_fulfillment
 from db.models import Consumer, InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant
+from orders.idempotency import request_fingerprint
 from orders.models import (
     CreateOrderRequest,
     CreatePosSaleRequest,
@@ -144,9 +147,29 @@ class OrderService:
         user_id: str,
         payload: CreatePosSaleRequest,
         cashier: str | None = None,
+        idempotency_key: str | None = None,
     ) -> OrderResponse:
+        """Cobra y devuelve la venta; ver `create_pos_sale_idempotent`."""
+        return self.create_pos_sale_idempotent(
+            tenant_id, user_id, payload, cashier, idempotency_key
+        )[0]
+
+    def create_pos_sale_idempotent(
+        self,
+        tenant_id: str,
+        user_id: str,
+        payload: CreatePosSaleRequest,
+        cashier: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> tuple[OrderResponse, bool]:
         """
-        Venta capturada por un empleado del negocio.
+        Venta capturada por un empleado del negocio. Devuelve `(venta, repetida)`.
+
+        Con `idempotency_key`, cobrar el mismo ticket dos veces (doble clic,
+        reintento tras perder la señal, respuesta que no llegó) NO crea otra
+        venta ni vuelve a descontar inventario: la segunda vez devuelve la que
+        ya se guardó, con `repetida=True`. La misma llave con otro contenido
+        es un error (`IdempotencyConflictError`).
 
         Exige la caja abierta: la venta se liga al turno para que el corte
         cuadre. El turno se toma con bloqueo compartido, así un cierre en curso
@@ -161,6 +184,16 @@ class OrderService:
         tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if tenant is None:
             raise StorefrontNotFoundError(tenant_id)
+
+        # Primero la llave, antes que la caja y el stock: un reintento de una
+        # venta ya hecha debe contestar lo mismo aunque la caja ya se haya
+        # cerrado o el inventario ya no alcance para repetirla.
+        fingerprint = request_fingerprint(payload, user_id) if idempotency_key else None
+        if idempotency_key:
+            self.repo.lock_idempotency_key(tenant_id, idempotency_key)
+            previous = self.repo.get_by_idempotency_key(tenant_id, idempotency_key)
+            if previous is not None:
+                return self._replay(previous, fingerprint, cashier), True
 
         cash_session = CashRepository(self.db).get_open(tenant_id, lock="share")
         if cash_session is None:
@@ -211,32 +244,58 @@ class OrderService:
             self.db.rollback()
             raise
 
-        order, items_data = self._apply(
-            tenant,
-            fulfillable,
-            user_id=user_id,
-            captured_by="staff",
-            fulfillment_type=payload.fulfillment_type,
-            status="paid",
-            payment_method=payload.payment_method,
-            table_number=payload.table_number,
-            shipping_address=payload.shipping_address.model_dump() if payload.shipping_address else None,
-            customer_name=payload.customer_name,
-            discount=discount,
-            tip=to_money(payload.tip),
-            amount_received=to_money(payload.amount_received) if payload.amount_received is not None else None,
-            change_given=change,
-            cash_session_id=cash_session.id,
-        )
-
-        self.db.commit()
+        try:
+            order, items_data = self._apply(
+                tenant,
+                fulfillable,
+                user_id=user_id,
+                captured_by="staff",
+                fulfillment_type=payload.fulfillment_type,
+                status="paid",
+                payment_method=payload.payment_method,
+                table_number=payload.table_number,
+                shipping_address=payload.shipping_address.model_dump() if payload.shipping_address else None,
+                customer_name=payload.customer_name,
+                discount=discount,
+                tip=to_money(payload.tip),
+                amount_received=to_money(payload.amount_received) if payload.amount_received is not None else None,
+                change_given=change,
+                cash_session_id=cash_session.id,
+                idempotency_key=idempotency_key,
+                request_hash=fingerprint,
+            )
+            self.db.commit()
+        except IntegrityError:
+            # Red de seguridad: el candado de arriba ya serializa las llaves
+            # repetidas, pero si dos peticiones llegaran a competir por el
+            # índice único, la que pierde devuelve la venta de la ganadora.
+            self.db.rollback()
+            previous = (
+                self.repo.get_by_idempotency_key(tenant_id, idempotency_key)
+                if idempotency_key else None
+            )
+            if previous is None:
+                raise
+            return self._replay(previous, fingerprint, cashier), True
         logger.info(
             "POS sale: order_id=%s tenant=%s user=%s type=%s pay=%s total=%s skipped=%d",
             order.id, tenant_id, user_id, payload.fulfillment_type,
             payload.payment_method, order.total, len(skipped),
         )
 
-        return self._to_response(order, items_data, tenant.slug or "", tenant.business_name, skipped, cashier)
+        return self._to_response(order, items_data, tenant.slug or "", tenant.business_name, skipped, cashier), False
+
+    def _replay(self, previous: Order, fingerprint: str | None, cashier: str | None) -> OrderResponse:
+        """
+        La venta que ya se guardó con esta llave, si la petición es la misma.
+
+        La huella incluye quién cobra y todo el contenido: otra persona o un
+        ticket distinto con la misma llave no recibe la venta ajena.
+        """
+        if previous.request_hash != fingerprint:
+            raise IdempotencyConflictError(previous.id)
+        logger.info("POS sale replayed: order_id=%s", previous.id)
+        return self._order_to_response(previous).model_copy(update={"cashier": cashier})
 
     # ------------------------------------------------------------------
     # Reglas de entrega del negocio
@@ -407,6 +466,8 @@ class OrderService:
         amount_received: Decimal | None = None,
         change_given: Decimal | None = None,
         cash_session_id: str | None = None,
+        idempotency_key: str | None = None,
+        request_hash: str | None = None,
     ) -> tuple[Order, list[dict]]:
         total = Decimal("0.00")
         items_data: list[dict] = []
@@ -476,6 +537,8 @@ class OrderService:
             amount_received=amount_received,
             change_given=change_given,
             cash_session_id=cash_session_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
             table_number=table_number,
             shipping_address=shipping_address,
             customer_name=customer_name,

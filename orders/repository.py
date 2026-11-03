@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from db.models import Consumer, Order, OrderItem
@@ -24,6 +24,33 @@ class OrderRepository:
             self.db.query(Order)
             .options(joinedload(Order.items), joinedload(Order.tenant))
             .filter(Order.id == order_id, Order.consumer_id == consumer_id)
+            .first()
+        )
+
+    # ── Cobro idempotente ─────────────────────────────────────────────
+
+    def lock_idempotency_key(self, tenant_id: str, key: str) -> None:
+        """
+        Serializa las peticiones con la misma llave dentro de un negocio.
+
+        Sin esto, dos peticiones idénticas que llegan juntas (doble clic) pasan
+        a la vez la búsqueda "¿ya existe?", la segunda espera a que la primera
+        suelte las existencias y recién entonces choca con el índice único. Con
+        el candado, la segunda espera ANTES de analizar nada y al despertar ya
+        encuentra la venta de la primera. Se suelta solo al terminar la
+        transacción (commit o rollback).
+        """
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"order-idem:{tenant_id}:{key}"},
+        )
+
+    def get_by_idempotency_key(self, tenant_id: str, key: str) -> Optional[Order]:
+        """La venta de este negocio que ya se guardó con esa llave, si existe."""
+        return (
+            self.db.query(Order)
+            .options(joinedload(Order.items), joinedload(Order.tenant))
+            .filter(Order.tenant_id == tenant_id, Order.idempotency_key == key)
             .first()
         )
 

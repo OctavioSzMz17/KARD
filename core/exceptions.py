@@ -153,6 +153,16 @@ class InsufficientPaymentError(Exception):
     """El efectivo recibido no alcanza para cubrir el total de la venta."""
 
 
+class IdempotencyConflictError(Exception):
+    """
+    La misma llave de idempotencia llegó con una petición distinta.
+
+    Un reintento legítimo repite la petición idéntica; si cambia el contenido
+    (otros artículos, otro importe, otra persona cobrando), contestar con la
+    venta anterior engañaría al cajero sobre lo que acaba de cobrar.
+    """
+
+
 class DuplicateProductCodeError(Exception):
     """El SKU o el código de barras ya lo usa otro producto vigente del negocio."""
 

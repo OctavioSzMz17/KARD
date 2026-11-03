@@ -319,6 +319,12 @@ class Order(Base):
     change_given = Column(Numeric(10, 2), nullable=True)
     cash_session_id = Column(String(50), ForeignKey("cash_sessions.id", ondelete="RESTRICT"), nullable=True, index=True)
 
+    # Cobro idempotente (migración 010). La llave la genera el cliente por
+    # ticket; la huella detecta la misma llave con otro contenido. Única por
+    # negocio (índice parcial `uq_orders_tenant_idempotency_key`).
+    idempotency_key = Column(String(80), nullable=True)
+    request_hash = Column(String(64), nullable=True)
+
     # Datos de la entrega. La dirección es una COPIA del momento de la compra,
     # no una referencia: si el cliente la edita después, el pedido histórico
     # debe seguir diciendo a dónde se mandó.

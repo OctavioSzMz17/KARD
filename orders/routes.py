@@ -15,7 +15,7 @@ Negocio (JWT de usuario):
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from core import permissions as P
@@ -30,6 +30,7 @@ from core.dependencies import (
     require_permission,
 )
 from db.database import get_db
+from orders.idempotency import is_valid_key
 from orders.models import (
     CreateOrderRequest,
     CreatePosSaleRequest,
@@ -75,8 +76,10 @@ def create_order(
 )
 def create_pos_sale(
     payload: CreatePosSaleRequest,
+    response: Response,
     current_user: CurrentUser = Depends(require_permission(P.POS_SELL)),
     device: Optional[Device] = Depends(get_optional_device),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ) -> OrderResponse:
     """
@@ -92,15 +95,31 @@ def create_pos_sale(
 
     Encargados y empleados solo cobran desde un equipo que la gerencia
     autorizó hoy (cabecera `X-Device-Token`); dueño, gerente y subgerente, desde cualquiera.
+
+    Cobro idempotente: el cliente manda una llave por ticket en `Idempotency-Key`.
+    Si el mismo cobro llega otra vez (doble clic, reintento tras perder la
+    señal) se devuelve la venta ya hecha —200 y `Idempotent-Replay: true`— en
+    vez de crear otra. La misma llave con otro contenido da 409
+    `IDEMPOTENCY_CONFLICT`; una llave con formato inválido, 422.
     """
+    if idempotency_key is not None and not is_valid_key(idempotency_key):
+        raise HTTPException(
+            status_code=422,
+            detail="Idempotency-Key debe tener de 16 a 80 caracteres: letras, números, guion y guion bajo",
+        )
     assert_can_charge(current_user, device)
-    return OrderService(db).create_pos_sale(
+    sale, replayed = OrderService(db).create_pos_sale_idempotent(
         current_user.tenant_id,
         current_user.user_id,
         payload,
         # Quién cobró, para el ticket: la parte local del correo, no el correo.
         cashier=current_user.email.split("@")[0],
+        idempotency_key=idempotency_key,
     )
+    if replayed:
+        response.status_code = status.HTTP_200_OK
+        response.headers["Idempotent-Replay"] = "true"
+    return sale
 
 
 @router.get(

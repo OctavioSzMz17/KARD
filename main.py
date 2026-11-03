@@ -31,6 +31,7 @@ from core.exceptions import (
     DuplicateProductCodeError,
     DuplicateProductNameError,
     EmailAlreadyExistsError,
+    IdempotencyConflictError,
     ImageNotFoundError,
     InsufficientPaymentError,
     InsufficientStockError,
@@ -322,6 +323,12 @@ async def invalid_discount_exception_handler(request: Request, exc: InvalidDisco
 @app.exception_handler(InsufficientPaymentError)
 async def insufficient_payment_exception_handler(request: Request, exc: InsufficientPaymentError):
     return _coded(400, "INSUFFICIENT_PAYMENT", str(exc))
+
+
+@app.exception_handler(IdempotencyConflictError)
+async def idempotency_conflict_exception_handler(request: Request, exc: IdempotencyConflictError):
+    """La misma llave de cobro con otro contenido → 409; el cajero debe revisar el ticket."""
+    return _coded(409, "IDEMPOTENCY_CONFLICT", "Este ticket ya se cobró con otro contenido; revisa las ventas")
 
 
 @app.exception_handler(DuplicateProductCodeError)
