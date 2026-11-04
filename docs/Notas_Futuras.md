@@ -39,3 +39,9 @@ acciones sensibles.
 - **Relación con otras piezas.** Encaja con la autorización de equipos por QR y
   con las cajas registradoras: un equipo autorizado podría quedar atado a un
   lugar.
+
+## Estado actual (3 de noviembre de 2026)
+
+Ya no se exige un equipo autorizado para cobrar: cualquier puesto con permiso de cobrar lo hace desde su propio celular o computadora. Esta idea de ubicación pasa a ser la protección que queda contra cobrar o modificar datos desde fuera del negocio.
+
+**Regla acordada:** toda acción está permitida siempre y cuando se haga dentro de la ubicación de confianza del negocio.

@@ -129,9 +129,6 @@ class TestPaquetesDePermisos:
         for puesto in P.POSITIONS:
             assert P.DEVICES_UNLOCK in P.permissions_of(puesto), puesto
 
-    def test_quien_necesita_un_equipo_autorizado_para_cobrar(self):
-        assert [P.needs_authorized_device(p) for p in P.POSITIONS] == [False, False, False, True, True]
-
     def test_el_empleado_no_puede_nada_de_gestion(self):
         for prohibido in (P.PRODUCTS_WRITE, P.INVENTORY_ADJUST, P.CASH_MANAGE, P.SALES_READ,
                           P.SALES_MANAGE, P.TEAM_MANAGE, P.SETTINGS_MANAGE, P.BILLING_MANAGE):

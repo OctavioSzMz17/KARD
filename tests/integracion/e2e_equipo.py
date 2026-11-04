@@ -227,8 +227,8 @@ check("la gerente ve el equipo en su lista", [d["name"] for d in lista] == ["Caj
 check("un empleado no ve la lista → 403", c.get(f"{DEV}/devices", headers=emp).status_code == 403)
 check("la óptica no ve los equipos de Sabor Norteño", c.get(f"{DEV}/devices", headers=otro_dueno).json()["items"] == [])
 r = c.post("/api/v1/orders/business/sales", headers=emp, json={"items": [{"product_id": p["product_id"], "quantity": 1}]})
-check("un empleado SIN equipo autorizado no puede cobrar → 403 DEVICE_NOT_AUTHORIZED",
-      r.status_code == 403 and r.json().get("code") == "DEVICE_NOT_AUTHORIZED", r.text[:120])
+check("un empleado SIN equipo autorizado ya no recibe 403 por eso (cobrar no depende del equipo)",
+      r.status_code != 403, r.text[:120])
 
 print("7) Cobrar al 100 % con el flujo de caja")
 if c.get("/api/v1/cash/current", headers=dueno).json() is None:
@@ -242,11 +242,13 @@ r = c.post("/api/v1/orders/business/sales", headers=emp_dev, json={"items": [{"p
                                                                   "payment_method": "cash", "amount_received": "1000"})
 check("el empleado cobra → 201", r.status_code == 201, r.text[:150])
 check("el ticket dice quién cobró (la parte local de su correo)", r.json().get("cashier") == "eva.empleada", str(r.json().get("cashier")))
+r = c.post("/api/v1/orders/business/sales", headers=emp, json={"items": [{"product_id": p["product_id"], "quantity": 1}], "payment_method": "card"})
+check("el mismo empleado cobra desde su propio celular, sin equipo autorizado → 201", r.status_code == 201, r.text[:150])
 check("el empleado no puede cerrar la caja → 403", c.post("/api/v1/cash/close", headers=emp, json={"counted_cash": "0"}).status_code == 403)
 check("la gerente sí la cierra", c.post("/api/v1/cash/close", headers=gerente, json={"counted_cash": "900"}).status_code == 200)
 check("al cerrar la caja el equipo queda desautorizado", c.get(f"{DEV}/current", headers={"X-Device-Token": token}).status_code == 403)
-check("y el empleado ya no puede cobrar con él → 403",
-      c.post("/api/v1/orders/business/sales", headers=emp_dev, json={"items": [{"product_id": p["product_id"], "quantity": 1}]}).status_code == 403)
+check("y con la caja cerrada nadie cobra, tenga o no equipo → 409 CASH_CLOSED",
+      c.post("/api/v1/orders/business/sales", headers=emp, json={"items": [{"product_id": p["product_id"], "quantity": 1}]}).status_code == 409)
 
 print("8) Encargada de área: ajusta inventario, nada más")
 enc_h, _ = entrar("eli.encargada@example.com", "Segura12345")

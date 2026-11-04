@@ -42,13 +42,12 @@ from core.exceptions import (
     AccountLockedError,
     ChallengeExpiredError,
     ChallengeNotFoundError,
-    DeviceNotAuthorizedError,
     InvalidCredentialsError,
     PermissionDeniedError,
     TooManyChallengesError,
     WrongVerificationCodeError,
 )
-from core.permissions import DEVICES_AUTHORIZE, POS_SELL, needs_authorized_device
+from core.permissions import DEVICES_AUTHORIZE, POS_SELL
 from core.redis_client import get_redis
 from core.security import verify_password
 from db.models import AuthChallenge, Device
@@ -121,17 +120,6 @@ def describe_user_agent(user_agent: Optional[str]) -> str:
 def clean_device_name(name: Optional[str]) -> str:
     cleaned = " ".join((name or "").split())[:60]
     return cleaned or DEFAULT_DEVICE_NAME
-
-
-def assert_can_charge(current_user: CurrentUser, device: Optional[Device]) -> None:
-    """
-    Cobrar desde este equipo: encargados y empleados solo desde uno autorizado
-    HOY por la gerencia, y de su mismo negocio. Dueño, gerente y subgerente, desde cualquiera.
-    """
-    if not needs_authorized_device(current_user.position):
-        return
-    if device is None or device.tenant_id != current_user.tenant_id:
-        raise DeviceNotAuthorizedError("Este equipo no está autorizado hoy para cobrar")
 
 
 class DeviceService:

@@ -131,14 +131,3 @@ def assignable_positions(actor_position: str) -> list[str]:
 def title_from_position(position: str) -> Optional[str]:
     """Valor para `users.job_title`: solo gerente, subgerente y encargado lo llevan."""
     return position if position in JOB_TITLES else None
-
-
-def needs_authorized_device(position: str) -> bool:
-    """
-    ¿Esta persona solo puede cobrar desde un equipo que la gerencia autorizó?
-
-    Encargados de área y empleados, sí: sin esto, cualquiera con su correo y
-    contraseña cobraría desde su casa. Dueño, gerente y subgerente no: son
-    quienes autorizan los equipos y trabajan desde cualquier lugar.
-    """
-    return level_of(position) >= level_of(AREA_LEAD)

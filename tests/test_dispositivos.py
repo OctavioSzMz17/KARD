@@ -9,7 +9,8 @@ pruebas protegen:
   * Autorizar un equipo exige teclear el código que se ve en SU pantalla, con
     tres intentos.
   * Un QR de otro negocio no existe para ti.
-  * Encargados y empleados solo cobran desde un equipo autorizado de su negocio.
+  * Cobrar NO depende del equipo: cualquier puesto con permiso de cobrar lo hace desde su
+    propio celular o computadora. El equipo autorizado solo existe para el modo caja.
   * El token del equipo no queda en la base: solo su hash.
 """
 
@@ -26,7 +27,6 @@ from core.dependencies import CurrentUser, get_current_user
 from core.exceptions import (
     ChallengeExpiredError,
     ChallengeNotFoundError,
-    DeviceNotAuthorizedError,
     InvalidCredentialsError,
     PermissionDeniedError,
     TooManyChallengesError,
@@ -37,7 +37,6 @@ from devices import service as service_module
 from devices.models import ApproveRequest, DeviceLoginRequest
 from devices.service import (
     DeviceService,
-    assert_can_charge,
     clean_device_name,
     describe_user_agent,
     sha256,
@@ -517,39 +516,60 @@ class TestEntrarEnLaCaja:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Cobrar desde un equipo autorizado
+# Cobrar no depende del equipo
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestCobrarSoloDesdeEquipoAutorizado:
-    @pytest.mark.parametrize("puesto", [P.AREA_LEAD, P.EMPLOYEE])
-    def test_encargados_y_empleados_necesitan_el_equipo(self, puesto):
-        with pytest.raises(DeviceNotAuthorizedError):
-            assert_can_charge(usuario(puesto), None)
+class TestCobrarNoExigeEquipoAutorizado:
+    """
+    Quien entra con su correo desde su celular o computadora cobra sin que nadie autorice
+    su equipo. El equipo autorizado solo sirve para la pantalla de la caja registradora.
+    """
 
-    @pytest.mark.parametrize("puesto", [P.AREA_LEAD, P.EMPLOYEE])
-    def test_con_un_equipo_autorizado_de_su_negocio_pueden(self, puesto):
-        assert_can_charge(usuario(puesto), equipo_autorizado(tenant_id="t_aaa"))
+    @pytest.fixture
+    def cobrar(self, monkeypatch):
+        from db.database import get_db
+        from orders import routes as orders_routes
+        from tests.test_cobro_idempotente import _respuesta_de_venta
 
-    @pytest.mark.parametrize("puesto", [P.AREA_LEAD, P.EMPLOYEE])
-    def test_un_equipo_de_otro_negocio_no_vale(self, puesto):
-        with pytest.raises(DeviceNotAuthorizedError):
-            assert_can_charge(usuario(puesto, tenant_id="t_aaa"), equipo_autorizado(tenant_id="t_bbb"))
+        class ServicioFalso:
+            def __init__(self, db):
+                pass
 
-    @pytest.mark.parametrize("puesto", [P.OWNER, P.MANAGER, P.ASSISTANT_MANAGER])
-    def test_la_gerencia_cobra_desde_cualquier_lugar(self, puesto):
-        assert_can_charge(usuario(puesto), None)
+            def create_pos_sale_idempotent(self, *a, **k):
+                return _respuesta_de_venta(), False
 
+        monkeypatch.setattr(orders_routes, "OrderService", ServicioFalso)
+        app.dependency_overrides[get_db] = lambda: SimpleNamespace()
 
-class TestCobroPorHTTP:
-    def test_un_empleado_sin_equipo_recibe_403_con_su_codigo(self):
-        app.dependency_overrides[get_current_user] = lambda: usuario(P.EMPLOYEE)
-        try:
-            r = TestClient(app, raise_server_exceptions=False).post(
-                "/api/v1/orders/business/sales", json={"items": [{"product_id": "p_1", "quantity": 1}]}
+        def enviar(puesto, headers=None):
+            app.dependency_overrides[get_current_user] = lambda: usuario(puesto)
+            return TestClient(app, raise_server_exceptions=False).post(
+                "/api/v1/orders/business/sales",
+                json={"items": [{"product_id": "p_1", "quantity": 1}]},
+                headers=headers or {},
             )
+
+        try:
+            yield enviar
         finally:
             app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+    @pytest.mark.parametrize("puesto", list(P.POSITIONS))
+    def test_cualquier_puesto_cobra_sin_equipo_autorizado(self, cobrar, puesto):
+        r = cobrar(puesto)
+        assert r.status_code == 201, r.text
+
+    @pytest.mark.parametrize("puesto", [P.AREA_LEAD, P.EMPLOYEE])
+    def test_un_token_de_equipo_invalido_tampoco_estorba(self, cobrar, puesto):
+        """El cobro ya no mira la cabecera del equipo: un token viejo o inventado no lo bloquea."""
+        r = cobrar(puesto, headers={"X-Device-Token": "inventado"})
+        assert r.status_code == 201, r.text
+
+    def test_las_rutas_del_equipo_siguen_exigiendo_el_token(self):
+        """Lo que sí sigue protegido: preguntar por el estado del equipo sin token da 403."""
+        r = TestClient(app, raise_server_exceptions=False).get("/api/v1/device-auth/current")
         assert r.status_code == 403
         assert r.json()["code"] == "DEVICE_NOT_AUTHORIZED"
 

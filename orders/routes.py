@@ -19,9 +19,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy.orm import Session
 
 from core import permissions as P
-from devices.dependencies import get_optional_device
-from devices.service import assert_can_charge
-from db.models import Device
 from core.dependencies import (
     CurrentConsumer,
     CurrentUser,
@@ -78,7 +75,6 @@ def create_pos_sale(
     payload: CreatePosSaleRequest,
     response: Response,
     current_user: CurrentUser = Depends(require_permission(P.POS_SELL)),
-    device: Optional[Device] = Depends(get_optional_device),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ) -> OrderResponse:
@@ -93,8 +89,9 @@ def create_pos_sale(
     cascada de insumos y bitácora atómica — así que una venta de mostrador
     mueve el inventario exactamente igual que una en línea.
 
-    Encargados y empleados solo cobran desde un equipo que la gerencia
-    autorizó hoy (cabecera `X-Device-Token`); dueño, gerente y subgerente, desde cualquiera.
+    Cualquier puesto con permiso de cobrar puede hacerlo desde su propio celular o
+    computadora: el equipo autorizado solo existe para la pantalla de la caja
+    registradora (modo caja), no para cobrar.
 
     Cobro idempotente: el cliente manda una llave por ticket en `Idempotency-Key`.
     Si el mismo cobro llega otra vez (doble clic, reintento tras perder la
@@ -107,7 +104,6 @@ def create_pos_sale(
             status_code=422,
             detail="Idempotency-Key debe tener de 16 a 80 caracteres: letras, números, guion y guion bajo",
         )
-    assert_can_charge(current_user, device)
     sale, replayed = OrderService(db).create_pos_sale_idempotent(
         current_user.tenant_id,
         current_user.user_id,
