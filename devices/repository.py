@@ -54,6 +54,45 @@ class DeviceRepository:
         self.db.flush()
         return n
 
+    def operated_by(self, tenant_id: str, user_id: str, now: datetime) -> Optional[Device]:
+        """La caja vigente que esta persona opera ahora (la más reciente), si alguna."""
+        return (
+            self.db.query(Device)
+            .filter(
+                Device.tenant_id == tenant_id,
+                Device.operator_id == user_id,
+                Device.revoked_at.is_(None),
+                Device.expires_at > now,
+            )
+            .order_by(Device.operator_since.desc())
+            .first()
+        )
+
+    def take_register(self, device: Device, user_id: str, now: datetime) -> bool:
+        """
+        Esta persona pasa a operar la caja. Una persona opera una sola caja a la vez, así que
+        se le quita de las demás. Devuelve True si la caja la operaba OTRA persona (o nadie):
+        entonces el ticket de la caja debe vaciarse.
+        """
+        changed_hands = device.operator_id != user_id
+        (
+            self.db.query(Device)
+            .filter(Device.tenant_id == device.tenant_id, Device.operator_id == user_id, Device.id != device.id)
+            .update({Device.operator_id: None, Device.operator_since: None}, synchronize_session=False)
+        )
+        if changed_hands:
+            device.operator_id = user_id
+            device.operator_since = now
+            self.db.add(device)
+        self.db.flush()
+        return changed_hands
+
+    def release_register(self, device: Device) -> None:
+        device.operator_id = None
+        device.operator_since = None
+        self.db.add(device)
+        self.db.flush()
+
     def touch(self, device: Device, now: datetime, every: timedelta = timedelta(seconds=60)) -> None:
         """Anota la última vez que se vio el equipo, sin escribir en cada petición."""
         if device.last_seen_at is None or now - device.last_seen_at >= every:

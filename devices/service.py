@@ -62,6 +62,7 @@ from devices.models import (
     DeviceLoginRequest,
 )
 from devices.repository import ChallengeRepository, DeviceRepository
+from tickets.service import TicketService
 from utils.helpers import generate_id
 
 logger = logging.getLogger("kard.devices")
@@ -326,6 +327,10 @@ class DeviceService:
             raise ChallengeNotFoundError(challenge.id)
 
         self.users.record_login(user)
+        if challenge.device_id:
+            device = self.devices.get_by_id(challenge.tenant_id, challenge.device_id)
+            if device is not None:
+                self._take_register(device, user)
         log_auth_event(email=user.email, success=True, ip_address=challenge.ip_address, reason="qr_unlock")
         log_operation(tenant_id=tenant.id, user_id=user.id, action="LOGIN", resource_id=challenge.device_id)
         token = AuthService._issue_token(user, tenant)
@@ -370,10 +375,30 @@ class DeviceService:
                 logger.warning("Redis cleanup after login failed", exc_info=True)
 
         self.users.record_login(user)
+        self._take_register(device, user)
         self.db.commit()
         log_auth_event(email=user.email, success=True, ip_address=ip, reason="device_login")
         log_operation(tenant_id=tenant.id, user_id=user.id, action="LOGIN", resource_id=device.id)
         return AuthService._token_response(AuthService._issue_token(user, tenant), user, tenant)
+
+    def _take_register(self, device: Device, user) -> None:
+        """
+        Esta persona pasa a operar la caja: su celular comparte el ticket de la caja.
+        Si la operaba otra persona, el ticket se vacía: nadie cobra lo que armó alguien más.
+        """
+        if self.devices.take_register(device, user.id, _now()):
+            TicketService(self.db).clear(device.tenant_id, device.id)
+
+    def release_register(self, device: Device, current_user: CurrentUser) -> None:
+        """
+        Cerrar sesión en la caja: ya nadie la opera y su ticket se vacía. Solo quien la opera
+        puede soltarla; otra persona no puede vaciarle el ticket a quien está cobrando.
+        """
+        if device.operator_id != current_user.user_id:
+            return
+        self.devices.release_register(device)
+        TicketService(self.db).clear(device.tenant_id, device.id)
+        self.db.commit()
 
     def _find_in_tenant(self, tenant_id: str, identifier: str):
         """Por correo o por código de empleado, SIEMPRE dentro del negocio del equipo."""

@@ -202,3 +202,18 @@ class PermissionDeniedError(Exception):
 
 class TooManyChallengesError(Exception):
     """Demasiados QR pedidos desde la misma dirección en poco tiempo."""
+
+
+# ── Ticket compartido de la caja ────────────────────────────────────────
+
+
+class NoRegisterError(Exception):
+    """Esta sesión no opera ninguna caja: no hay ticket compartido al que mandar cambios."""
+
+
+class TicketFullError(Exception):
+    """El ticket ya tiene el máximo de productos distintos."""
+
+
+class TicketBusyError(Exception):
+    """El ticket cambió demasiadas veces seguidas mientras se guardaba; se puede reintentar."""

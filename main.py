@@ -39,6 +39,7 @@ from core.exceptions import (
     InvalidDiscountError,
     InvalidMetadataError,
     InvalidRecipeError,
+    NoRegisterError,
     OrderNotFoundError,
     OrderStockConflictError,
     PlanLimitExceededError,
@@ -48,6 +49,8 @@ from core.exceptions import (
     TenantAlreadyExistsError,
     TeamHierarchyError,
     TenantNotFoundError,
+    TicketBusyError,
+    TicketFullError,
     UserCreationNotAllowedError,
     UserNotFoundError,
 )
@@ -63,6 +66,7 @@ from products.routes import router as products_router
 from saasadmin.routes import router as saasadmin_router
 from devices.routes import router as devices_router
 from team.routes import router as team_router
+from tickets.routes import router as tickets_router
 from settings.routes import router as settings_router
 from storefront.routes import router as storefront_router
 
@@ -325,6 +329,23 @@ async def insufficient_payment_exception_handler(request: Request, exc: Insuffic
     return _coded(400, "INSUFFICIENT_PAYMENT", str(exc))
 
 
+@app.exception_handler(NoRegisterError)
+async def no_register_exception_handler(request: Request, exc: NoRegisterError):
+    """Mandar cambios al ticket de una caja sin operar ninguna → 409."""
+    return _coded(409, "NO_REGISTER", "Esta sesión no está operando una caja")
+
+
+@app.exception_handler(TicketFullError)
+async def ticket_full_exception_handler(request: Request, exc: TicketFullError):
+    return _coded(409, "TICKET_FULL", "El ticket ya tiene el máximo de productos distintos")
+
+
+@app.exception_handler(TicketBusyError)
+async def ticket_busy_exception_handler(request: Request, exc: TicketBusyError):
+    """Demasiados cambios simultáneos en el mismo ticket: se puede reintentar → 503."""
+    return _coded(503, "TICKET_BUSY", "El ticket está ocupado; intenta de nuevo")
+
+
 @app.exception_handler(IdempotencyConflictError)
 async def idempotency_conflict_exception_handler(request: Request, exc: IdempotencyConflictError):
     """La misma llave de cobro con otro contenido → 409; el cajero debe revisar el ticket."""
@@ -359,6 +380,7 @@ app.include_router(cash_router, prefix="/api/v1/cash", tags=["cash"])
 app.include_router(settings_router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(team_router, prefix="/api/v1/team", tags=["team"])
 app.include_router(devices_router, prefix="/api/v1/device-auth", tags=["device-auth"])
+app.include_router(tickets_router, prefix="/api/v1/tickets", tags=["tickets"])
 
 
 if __name__ == "__main__":

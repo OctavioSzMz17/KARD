@@ -473,6 +473,7 @@ def _routers():
     from settings.routes import router as settings
     from storefront.routes import router as storefront
     from team.routes import router as team
+    from tickets.routes import router as tickets
 
     return [
         ("/api/v1/auth", auth), ("/api/v1/saasadmin", saasadmin), ("/api/v1/products", products),
@@ -480,6 +481,7 @@ def _routers():
         ("/api/v1/consumers", consumers), ("/api/v1/billing", billing), ("/api/v1/explore", explore),
         ("/api/v1/cart", cart), ("/api/v1/orders", orders), ("/api/v1/cash", cash),
         ("/api/v1/settings", settings), ("/api/v1/team", team), ("/api/v1/device-auth", devices),
+        ("/api/v1/tickets", tickets),
     ]
 
 
@@ -568,6 +570,9 @@ ESPERADO = {
     ("POST", "/api/v1/team/{user_id}/password"): P.TEAM_MANAGE,
     ("GET", "/api/v1/device-auth/devices"): P.DEVICES_AUTHORIZE,
     ("DELETE", "/api/v1/device-auth/devices/{device_id}"): P.DEVICES_AUTHORIZE,
+    ("POST", "/api/v1/device-auth/release"): P.DEVICES_UNLOCK,
+    ("GET", "/api/v1/tickets/current"): P.POS_SELL,
+    ("POST", "/api/v1/tickets/ops"): P.POS_SELL,
 }
 
 

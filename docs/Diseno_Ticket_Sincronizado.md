@@ -1,141 +1,117 @@
-# Diseño: ticket sincronizado entre la caja y el celular
+# Ticket compartido entre la caja y el celular
 
-Estado: **propuesta para revisar**. No hay código. Depende de las cajas múltiples (punto 5 de `docs/Pendientes.md`), porque cada ticket pertenece a una caja.
+Estado: **construido** (servidor y cliente), con pruebas. Este documento describe lo que quedó, no una propuesta.
 
-## 1. El problema
+## 1. Qué hace
 
-Hoy el ticket vive en el navegador de quien lo arma. Si el empleado escanea productos con su celular, el ticket de la laptop (modo caja) no se entera. Tampoco hay forma de que, si se borra una línea en la laptop, el celular lo vea.
+Quien opera una caja registradora ve **el mismo ticket** en la computadora de la caja y en su celular. Lo que se escanea con el celular aparece en la computadora, como si fuera un escáner de mano, y lo que se borra en una pantalla se borra en la otra. Cualquiera de las dos puede cobrar.
 
-Lo que queremos:
+- Si se va el internet, los cambios esperan en una fila y se reenvían al volver; el ticket no se pierde.
+- Si se reinicia el servidor o Redis, el ticket se recupera de una copia en la base.
+- Si el ticket se cobra en una pantalla, en la otra se vacía solo, y cobrarlo en las dos no lo duplica.
 
-- El celular funciona como **escáner** del ticket de una caja concreta.
-- La laptop ve lo que escanea el celular casi al instante, y al revés.
-- Si la conexión se va o el servidor se reinicia, el ticket sigue ahí un tiempo.
-- Nada de esto puede abrir un hueco de seguridad (ver sección 6).
+## 2. Cómo encuentra el celular su caja
 
-## 2. Idea central
+No hay un QR extra. La caja es la que **la persona ya está operando**:
 
-El ticket en borrador vive **en el servidor**, no en cada navegador, y tiene un **número de revisión** que sube con cada cambio. Cada pantalla se limita a mostrar el último estado y a mandar cambios. Así, "borrar en la laptop" y "agregar en el celular" son lo mismo: cambios sobre un estado compartido.
+1. La persona entra a la caja: lee el QR de desbloqueo con su celular, o teclea su correo o código en la computadora. En ese momento el servidor anota en la caja quién la opera (`devices.operator_id`).
+2. La computadora de la caja manda su token de equipo en cada petición, así que su caja es esa.
+3. El celular no tiene token de equipo. Su caja es la que su dueño opera (`DeviceRepository.operated_by`).
 
-```
-celular ──POST op──►  servidor ──► Redis (ticket vivo + rev) ──► pub/sub ──► laptop (SSE)
-laptop  ──POST op──►     │                                              └──► celular (SSE)
-                         └──► Postgres (copia, para recuperar)
-```
+Reglas:
 
-Las escrituras van por HTTP normal. Solo la lectura en tiempo real es un canal abierto: **SSE** (Server-Sent Events), de una sola vía. Un websocket no aporta nada aquí, porque el cliente no necesita hablarle al servidor por ese canal.
+- **Una persona opera una sola caja a la vez.** Si entra a otra, deja la primera.
+- **Cuando entra otra persona a la caja, el ticket se vacía.** Nadie cobra lo que armó alguien más.
+- **Al cerrar sesión en la caja** (`POST /device-auth/release`) queda sin operador y sin ticket.
+- **Al cerrar la caja del día** se desautorizan las cajas y se borran todos los tickets en armado.
+- Una persona que no opera ninguna caja usa Cobrar como siempre: su ticket se queda en su pantalla.
 
-## 3. Modelo de datos
+## 3. Dónde vive el ticket
 
-**Redis** (clave `ticket:{tenant_id}:{caja_id}`, un hash):
+| Dónde | Qué guarda | Para qué |
+|---|---|---|
+| **Redis** (`ticket:{negocio}:{caja}`) | El ticket vivo, con caducidad de 12 horas que **se renueva con cada cambio** | Lectura rápida (las pantallas preguntan cada segundo) |
+| **Postgres** (`ticket_drafts`, migración 011) | Una copia en cada cambio | Recuperar el ticket si Redis se reinicia; es el almacén completo cuando no hay Redis |
+| **Postgres** (`devices.operator_id`) | Quién opera cada caja | Que el celular encuentre su caja |
 
-| Campo | Contenido |
-|---|---|
-| `rev` | Entero que sube con cada cambio |
-| `uid` | Identificador del ticket; cambia al cobrar o vaciar. Sirve de `Idempotency-Key` del cobro |
-| `lines` | Lista de `{line_id, product_id, quantity}` |
-| `meta` | Descuento, propina, nombre del cliente, tipo de entrega, mesa |
-| `ops` | Últimos identificadores de operación (para no aplicar dos veces la misma) |
+El ticket es una lista de líneas (producto y cantidad), un **identificador** (`uid`, cambia al cobrar o vaciar) y una **revisión** (`rev`, sube con cada cambio). El servidor **no guarda precios**: al cobrar vuelve a leerlos del catálogo.
 
-- **TTL de 12 horas que se renueva con cada cambio.** Al cerrar la caja se borra.
-- El servidor **nunca guarda precios**: al cobrar vuelve a leer los precios del catálogo (como hoy). Las líneas solo llevan producto y cantidad.
+La copia en la base solo avanza: una copia atrasada no pisa una más nueva. Si Redis falla a media operación, se sigue con la base.
 
-**Postgres** (migración `011_ticket_drafts.sql`, aún no escrita): tabla `ticket_drafts(caja_id PK, tenant_id, uid, rev, payload JSONB, updated_at)`.
+## 4. Operaciones
 
-- Se hace *upsert* en cada cambio, solo si `rev` es mayor que el guardado (así un guardado atrasado no pisa uno nuevo).
-- Se lee de aquí solo si Redis no tiene el ticket (reinicio, expiración, caída). Entonces se vuelve a cargar en Redis.
-- Se borra al cobrar, al vaciar, al cerrar la caja y, por limpieza, pasadas 24 horas.
-
-## 4. Operaciones y sincronización
-
-Endpoints (todos del negocio autenticado, con la caja resuelta desde el equipo o el emparejamiento):
+Rutas (`/api/v1/tickets`, con el permiso de cobrar):
 
 | Método | Ruta | Para qué |
 |---|---|---|
-| `GET` | `/api/v1/tickets/current` | Estado actual completo (`rev`, `lines`, `meta`) |
-| `POST` | `/api/v1/tickets/ops` | Aplicar una operación |
-| `GET` | `/api/v1/tickets/stream` | Canal SSE con el estado nuevo |
-| `POST` | `/api/v1/tickets/pairings` | Emparejar un celular (ver sección 5) |
+| `GET` | `/current` | El ticket de mi caja. Con `since` y `uid`, responde **204 sin cuerpo** si la pantalla ya tiene lo último |
+| `POST` | `/ops` | Una operación: `add`, `set_quantity`, `remove`, `clear`. Devuelve el ticket completo |
 
-Operaciones: `add_line` (suma cantidad si el producto ya está), `set_quantity`, `remove_line`, `set_meta`, `clear`. Cada una trae un `op_id` único.
+Las operaciones están pensadas para **no chocar**:
 
-- **Idempotencia.** Si el mismo `op_id` llega dos veces (reintento), el servidor no lo vuelve a aplicar y contesta con el estado actual. Se aplica en un script Lua en Redis, para que revisar el `op_id`, cambiar el ticket, subir `rev` y publicar sea **una sola operación atómica**.
-- **Conflictos.** Las operaciones están pensadas para no chocar: `add_line` suma; `set_quantity` y `remove_line` apuntan a una línea concreta, y si esa línea ya no existe no hacen nada y devuelven el estado actual (no es un error). Solo `clear` puede llevar `base_rev`, y si no coincide da 409 para que no se borre un ticket que cambió mientras tanto.
-- **Reconexión.** El canal SSE siempre manda el **estado completo** (no una lista de eventos), así que al reconectar basta con recibir el último. No hay que reconstruir historia.
-- **Latidos.** El servidor manda un latido cada 15 segundos para que los proxies no corten la conexión.
-- **Respaldo.** Si el canal falla, la pantalla pregunta cada 1 o 2 segundos `GET /tickets/current?since={rev}`; el servidor contesta 204 si no hay cambios.
-- **La lámpara de "conectado"** es una clave de Redis con TTL de 30 segundos que renueva el canal del celular; la laptop la lee.
+- `add` suma (si las dos pantallas escanean el mismo producto son dos unidades, no una).
+- `set_quantity` y `remove` apuntan a un producto; si ya no está, no pasa nada y no es un error.
+- `clear` vacía y estrena identificador. Con `uid`, solo si sigue siendo ese ticket: un "vaciar" tardío de un ticket ya cobrado no borra el siguiente.
+- Cada operación trae una llave (`op_id`); una repetida (reintento de red) no se aplica dos veces.
+- Un ticket tiene como máximo 100 productos distintos y 999 unidades por producto.
+- Solo se pueden agregar productos finales del negocio (404 si no).
 
-Al cobrar: el servidor usa el `uid` del ticket como `Idempotency-Key` del cobro (ver `docs/Pruebas_IEEE829.md`, PS-07), borra el ticket, genera un `uid` nuevo y avisa por el canal para que el celular quede vacío.
+Dos cambios simultáneos se conservan los dos: en Redis con `WATCH/MULTI`, y en la base con el candado de la fila (`SELECT ... FOR UPDATE`).
 
-El ticket también se vacía cuando entra otra persona a la caja (por correo o código, por el QR de desbloqueo o al cerrar sesión), con el mismo aviso por el canal.
+## 5. Cómo se mantienen al día las pantallas (cliente)
 
-## 5. Emparejar el celular
+`TicketSyncService` (uno por pantalla de Cobrar):
 
-Se reutiliza el modelo de los QR de autorización (ya probado):
+- Pregunta cada **1.2 segundos**. Casi siempre contesta 204, que no pesa nada.
+- Los cambios propios se ven al instante y se mandan **en orden, uno a la vez**. Si no hay internet, esperan en la fila y se reenvían con la **misma llave**: el servidor no los aplica dos veces. La lámpara pasa a "sin conexión (N por enviar)".
+- Mientras haya cambios sin confirmar **no se pisa lo que se ve** con lo que dice el servidor.
+- Una consulta lenta que salió antes de un cambio propio no regresa el ticket al pasado cuando por fin llega (`ResponseOrder`).
+- Una sesión que no opera caja pregunta una vez y deja de preguntar.
 
-1. La laptop muestra, bajo "Ticket", un QR de emparejamiento. El QR lleva solo un identificador aleatorio de un solo uso, en el fragmento de la dirección (no viaja al servidor).
-2. El empleado lo lee con su celular, ya con su sesión iniciada, y confirma.
-3. El servidor entrega **un permiso de emparejamiento** atado a esa caja y a esa persona. Caduca solo y se revoca al cerrar la caja o al bloquearla.
-4. Ese permiso solo sirve para `add_line` y `set_quantity` en el ticket de esa caja, y para abrir el canal. **No sirve para cobrar.**
+La pantalla de Cobrar muestra una lámpara con el nombre de la caja: verde "sincronizada", o ámbar si no hay conexión.
 
-## 6. Seguridad
+## 6. Cobrar
 
-- **Aislamiento por negocio.** La clave de Redis lleva el `tenant_id` que sale del token, nunca del cuerpo. Una caja de otro negocio simplemente no existe para quien pregunta.
-- **El permiso de emparejamiento solo escanea.** Cobrar no depende de ningún equipo (cualquier puesto cobra desde su propia sesión), pero el celular emparejado solo puede agregar y cambiar cantidades en el ticket de esa caja; el cobro se hace en la caja o en la propia sesión de la persona.
-- **Sin datos sensibles en la dirección.** El canal SSE se abre con `fetch` y cabeceras, no con `EventSource`, para no poner tokens en la URL.
-- **Límites.** Máximo de líneas por ticket, tope de cantidad por línea y límite de operaciones por segundo por emparejamiento, para que un celular roto o malicioso no inunde Redis.
-- **Productos.** Cada `product_id` se valida contra el catálogo del negocio al aplicarse (o, como mínimo, al cobrar); uno inventado no llega a una venta.
-- **Registro.** Emparejar, revocar y vaciar quedan en la bitácora, igual que autorizar un equipo.
+La llave de idempotencia del cobro (`Idempotency-Key`) es el `uid` del ticket. Así, si la computadora y el celular cobran **el mismo ticket**, el servidor devuelve la misma venta la segunda vez (200) en vez de crear otra, y el inventario baja una sola vez. Después de cobrar se manda `clear` con ese `uid`, y la otra pantalla ve el ticket vacío y un aviso.
 
-## 7. Qué pasa cuando algo falla
+Sin caja, el ticket local también estrena una llave propia (`loc-…`) al cobrar, así que un doble clic tampoco cobra dos veces.
+
+## 7. Seguridad
+
+- **Aislamiento por negocio.** La clave de Redis lleva el negocio que sale del token. Una caja de otro negocio no existe para quien pregunta, aunque adivine su identificador o mande su token de equipo.
+- **Solo quien opera la caja** puede soltarla; otra persona no puede vaciarle el ticket a quien está cobrando.
+- Una caja **desautorizada o vencida** ya no se opera.
+- Un identificador de producto inventado no entra al ticket.
+- Las llaves de operación tienen forma fija (16 a 64 caracteres seguros): no entran saltos de línea ni caracteres raros.
+- Cobrar **no depende del equipo**: cualquier puesto con permiso de cobrar lo hace desde su propio celular o computadora. Lo que sí sigue protegido es la pantalla de la caja registradora (autorizar y desbloquear).
+
+## 8. Qué pasa cuando algo falla
 
 | Falla | Resultado |
 |---|---|
-| Se cae la conexión del celular | La laptop sigue con su ticket; el celular reintenta y recibe el estado completo |
-| Se reinicia el servidor | Redis y Postgres conservan el ticket; las pantallas se reconectan solas |
-| Redis se reinicia sin persistencia | El ticket se recupera desde Postgres y se vuelve a cargar |
-| Redis cae por completo | Se lee y escribe en Postgres; sin tiempo real, con el respaldo de consulta periódica |
-| Dos pantallas cambian lo mismo a la vez | Gana el orden de llegada; ambas reciben el mismo estado final |
-| Se borra una línea en la laptop mientras el celular agrega otra | Las dos operaciones se aplican; el celular ve el borrado |
-| El empleado cierra la caja con un ticket abierto | El ticket se borra; el celular lo ve vacío |
-| Otra persona entra a la caja | El ticket se vacía y el celular lo ve vacío |
+| Se va el internet en el celular | Sus cambios esperan en la fila y se reenvían al volver; el ticket de la caja sigue ahí |
+| Se reinicia el servidor | El ticket sigue en Redis o en la base; las pantallas se reconectan solas |
+| Redis se reinicia sin guardar datos | El ticket se recupera de la base y se vuelve a cargar |
+| Redis cae por completo | Todo sigue con la base, sin Redis |
+| Dos pantallas cambian lo mismo a la vez | Se conservan las dos operaciones |
+| Se borra una línea en la computadora mientras el celular escanea otra | Se aplican las dos |
+| Entra otra persona a la caja | El ticket se vacía y el celular de la anterior deja de ver la caja |
+| La persona deja de operar la caja mientras tiene Cobrar abierto | La pantalla avisa y su ticket vuelve a ser solo de esa pantalla |
+| Se cierra la caja del día | Los tickets en armado se borran |
+| Un cobro falla y se reintenta | Misma llave: si sí se había guardado, no se duplica |
 
-## 8. Cosas del servidor a tener en cuenta
+## 9. Lo que quedó fuera (a propósito)
 
-- Hoy los endpoints son `def` (síncronos) para no bloquear el servidor con la base. El canal SSE tiene que ser `async def` con el cliente asíncrono de Redis (`redis.asyncio`), o cada conexión abierta ocuparía un hilo del servidor y se repetiría el problema de rendimiento que ya arreglamos.
-- Con **más de una instancia** en Render, el pub/sub de Redis es lo que avisa entre instancias. Con una sola funcionaría en memoria, pero conviene hacerlo con Redis desde el principio.
-- **Redis en Render:** ya lo tienes (por eso funciona el carrito). Falta **confirmar su plan y si guarda datos en disco**; el plan gratuito de este tipo de servicios normalmente no persiste. Por eso la copia en Postgres no es opcional.
+- **Tiempo real por SSE o websocket.** Hoy se pregunta cada 1.2 s, que se siente casi inmediato y es robusto detrás de cualquier proxy. SSE queda como mejora si algún día importa bajar ese segundo.
+- **Descuento, propina, forma de pago y nombre del cliente** no se comparten: solo las líneas del ticket. Cada pantalla captura lo suyo al cobrar.
+- **Cajas múltiples con su propio turno de efectivo** (punto 5 de `docs/Pendientes.md`): hoy hay un solo turno por negocio. El ticket ya es por caja.
+- **Límite de operaciones por segundo** por sesión.
+- **Limpieza de filas vencidas** de `ticket_drafts`: hay como máximo una por caja y se borran al soltar o cerrar la caja.
+- **Probado contra un Redis real:** el camino con Redis se probó con un Redis simulado que respeta `WATCH/MULTI`. Falta probarlo contra el Redis de Render.
 
-## 9. Plan de pruebas
+## 10. Pruebas
 
-- **Unitarias** (con Redis y base simulados): operaciones que no chocan, `op_id` repetido sin efecto, `rev` siempre creciente, `clear` con `base_rev` viejo da 409, límites de líneas y cantidad.
-- **Contra Redis real:** el script Lua con dos clientes a la vez (sin `rev` repetidos, sin líneas perdidas), TTL que se renueva, recuperación desde Postgres con Redis vacío.
-- **De punta a punta** (como `e2e_caja.py`): dos clientes simulados, uno borra y otro agrega; el canal entrega el estado final a los dos; reconexión tras cortar el canal.
-- **Seguridad:** emparejamiento de otro negocio, permiso caducado o revocado, intento de cobrar con un permiso de emparejamiento (debe dar 403).
-- **Mutaciones:** quitar la atomicidad del script, aceptar `op_id` repetido, no validar el negocio de la clave. La suite debe fallar cada vez.
-- **Documentación:** casos nuevos en `docs/Pruebas_IEEE829.md`.
+Ver `docs/Pruebas_IEEE829.md`: PS-08 (servidor), PC-15, PC-16 y PC-17 (cliente). Además:
 
-## 10. Orden de construcción
-
-1. Cajas múltiples (punto 5): da el `caja_id` y separa los turnos.
-2. Migración `011_ticket_drafts.sql` y el servicio de tickets con Redis y respaldo en Postgres.
-3. Endpoints de operaciones y consulta, con pruebas.
-4. Canal SSE y emparejamiento por QR.
-5. Cliente: el ticket de Cobrar lee y escribe en el servidor; QR bajo "Ticket", lámpara de conexión y pantalla del celular solo para escanear.
-6. Pruebas de punta a punta y documentación.
-
-## 11. Decisiones
-
-**Tomadas**
-
-1. **El celular emparejado solo escanea, y se sincroniza con el modo caja.** No cobra por su permiso de emparejamiento.
-2. **Cuando entra otra persona a la caja, el ticket se vacía.** Aplica al entrar con correo o código, al leer el QR de desbloqueo y al cerrar sesión en la caja. Así nadie cobra un ticket que armó alguien más.
-3. **No existe bloquear la caja.** Se quitó la opción de todas las vistas y el bloqueo por inactividad: para cambiar de persona se cierra sesión (la caja queda lista para la siguiente).
-4. **Cobrar no depende del equipo.** Cualquier puesto con permiso de cobrar lo hace desde su propio celular o computadora. El equipo autorizado solo existe para la pantalla de la caja registradora.
-
-**Abiertas**
-
-1. **¿Cuánto dura el ticket?** Propuesta: 12 horas renovables, o hasta cerrar la caja si ocurre antes.
-2. **¿Cuántos celulares por caja?** Propuesta: varios, cada uno con su permiso.
-3. **TTL del permiso de emparejamiento:** propuesta de 12 horas, igual que el equipo.
+- `tests/integracion/e2e_ticket.py`: tablet, celular y laptop simulados contra la base real, con reversión.
+- `tests/integracion/e2e_ticket_concurrencia.py`: cuatro conexiones a la vez sobre el mismo ticket; no se pierde ninguna operación.

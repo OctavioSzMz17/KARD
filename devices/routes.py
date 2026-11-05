@@ -9,6 +9,7 @@ Equipos autorizados y acceso por QR (rutas delgadas; la regla vive en `DeviceSer
     POST /device-auth/unlock-challenges        — pedir un QR para abrir sesión
     POST /device-auth/login                    — abrir sesión con correo o código de empleado
     GET  /device-auth/current                  — ¿sigue autorizado este equipo?
+    POST /device-auth/release                  — cerrar sesión en la caja (queda sin operador y sin ticket)
 
   Con sesión de una persona (el celular):
     GET  /device-auth/challenges/{id}          — qué voy a aprobar
@@ -139,6 +140,19 @@ def device_login(
     db: Session = Depends(get_db),
 ) -> TokenResponse:
     return DeviceService(db).login_on_device(device, payload, _client_ip(request))
+
+
+@router.post(
+    "/release",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Sign out on this register: nobody operates it and its ticket is emptied",
+)
+def release_register(
+    device: Device = Depends(require_device),
+    current_user: CurrentUser = Depends(require_permission(P.DEVICES_UNLOCK)),
+    db: Session = Depends(get_db),
+) -> None:
+    DeviceService(db).release_register(device, current_user)
 
 
 @router.get(

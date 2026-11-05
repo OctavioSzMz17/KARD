@@ -25,6 +25,7 @@ from core.dependencies import CurrentUser, require_permission
 from core import permissions as P
 from db.database import get_db
 from devices.repository import DeviceRepository
+from tickets.service import TicketService
 
 router = APIRouter()
 
@@ -70,6 +71,8 @@ def close_cash(
     # Con el corte termina el turno: los equipos que la gerencia autorizó para
     # el día dejan de estar autorizados, y mañana se vuelven a autorizar.
     DeviceRepository(db).revoke_all(current_user.tenant_id, datetime.now(timezone.utc))
+    # Los tickets que se estaban armando en las cajas terminan con el turno.
+    TicketService(db).clear_tenant(current_user.tenant_id)
     db.commit()
     return closed
 

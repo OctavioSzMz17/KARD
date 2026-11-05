@@ -81,6 +81,36 @@ class FakeDeviceRepository:
     def revoke(self, device, now):
         device.revoked_at = now
 
+    def operated_by(self, tenant_id, user_id, now):
+        quien = [d for d in self.devices if d.tenant_id == tenant_id and getattr(d, "operator_id", None) == user_id
+                 and d.revoked_at is None and d.expires_at > now]
+        return max(quien, key=lambda d: d.operator_since, default=None)
+
+    def take_register(self, device, user_id, now):
+        """Igual que el real: una persona opera una sola caja, y se avisa si la caja cambió de manos."""
+        cambio = getattr(device, "operator_id", None) != user_id
+        for otro in self.devices:
+            if otro is not device and otro.tenant_id == device.tenant_id and getattr(otro, "operator_id", None) == user_id:
+                otro.operator_id = otro.operator_since = None
+        if cambio:
+            device.operator_id, device.operator_since = user_id, now
+        return cambio
+
+    def release_register(self, device):
+        device.operator_id = device.operator_since = None
+
+
+class FakeTicketService:
+    """Registra qué cajas se vaciaron, sin tocar Redis ni la base."""
+
+    cleared: list = []
+
+    def __init__(self, db, redis_client=None):
+        pass
+
+    def clear(self, tenant_id, device_id):
+        FakeTicketService.cleared.append((tenant_id, device_id))
+
 
 class FakeChallengeRepository:
     def __init__(self):
@@ -142,6 +172,8 @@ def servicio(monkeypatch):
     monkeypatch.setattr(service_module, "log_operation", lambda **kw: llamadas.append(kw))
     monkeypatch.setattr(service_module, "log_auth_event", lambda **kw: None)
     monkeypatch.setattr(service_module, "get_redis", lambda: None)
+    FakeTicketService.cleared = []
+    monkeypatch.setattr(service_module, "TicketService", FakeTicketService)
     monkeypatch.setattr(service_module, "verify_password", lambda plain, hashed: hashed == f"hash:{plain}")
     monkeypatch.setattr(AuthService, "_issue_token", staticmethod(lambda user, tenant: f"jwt-de-{user.id}"))
 

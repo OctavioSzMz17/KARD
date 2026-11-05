@@ -467,6 +467,30 @@ class Device(Base):
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Quién opera la caja ahora (migración 011). Su celular comparte el ticket de la caja.
+    operator_id = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    operator_since = Column(DateTime(timezone=True), nullable=True)
+
+
+class TicketDraft(Base):
+    """
+    Copia en la base del ticket que se arma en una caja (migración 011).
+
+    El ticket vivo está en Redis; esto permite recuperarlo si Redis se reinicia y
+    es el almacén completo cuando no hay Redis. `payload` guarda líneas y llaves
+    de operaciones recientes; `uid` y `rev` van aparte para consultarlos sin abrirlo.
+    """
+
+    __tablename__ = "ticket_drafts"
+
+    device_id = Column(String(40), ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    uid = Column(String(40), nullable=False)
+    rev = Column(Integer, nullable=False, default=0)
+    payload = Column(JSONB, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
 
 class AuthChallenge(Base):
     """Un QR en pantalla esperando que un celular lo apruebe (autorizar un equipo o abrir sesión)."""

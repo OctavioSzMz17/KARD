@@ -122,7 +122,7 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Prioridad** | Crítica (seguridad) |
 | **Entradas** | Los cinco puestos (dueño, gerente, subgerente, encargado de área, empleado); altas, cambios de puesto, bajas y cambios de contraseña de cada uno sobre cada otro; todas las rutas del negocio llamadas por un empleado y por un encargado; personas de otro negocio; códigos de empleado simultáneos; un puesto desconocido en la base |
 | **Resultado esperado** | El empleado solo cobra, consulta el catálogo y ve si la caja está abierta. El encargado de área suma ajustar inventario. Gerente y subgerente supervisan pero no tocan suscripción ni personalización. El dueño puede todo. Nadie registra ni modifica a alguien de su nivel o superior, nadie se sube el puesto ni se da de baja a sí mismo, y el dueño no queda a merced de nadie. Un puesto desconocido cae al más bajo, no al más alto. Una persona de otro negocio responde 404 (no se confirma que exista). Los códigos de empleado son por negocio y los genera el sistema, también con altas simultáneas. La contraseña nunca llega a la bitácora. **Ninguna ruta del negocio queda sin guardia de permiso**, y cada una pide exactamente el acordado. Un cambio de puesto o una baja surten efecto de inmediato con el mismo token |
-| **Criterio de aprobación** | Las 139 verificaciones pasan; las de punta a punta contra la base real también (se revierten solas). Cinco mutaciones de seguridad hacen fallar la suite: la jerarquía que deja tocar al par, una ruta de escritura sin guardia, un permiso de más al empleado, un puesto desconocido que cae al dueño y una consulta sin filtrar por negocio (esta última solo la detecta la prueba contra la base real) |
+| **Criterio de aprobación** | Las 142 verificaciones pasan; las de punta a punta contra la base real también (se revierten solas). Cinco mutaciones de seguridad hacen fallar la suite: la jerarquía que deja tocar al par, una ruta de escritura sin guardia, un permiso de más al empleado, un puesto desconocido que cae al dueño y una consulta sin filtrar por negocio (esta última solo la detecta la prueba contra la base real) |
 | **Dependencias** | Migración `008_equipo_y_puestos.sql` aplicada para la verificación contra base real |
 
 ### PS-06 · Equipos autorizados y acceso por QR
@@ -150,6 +150,19 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Resultado esperado** | La segunda vez devuelve la venta ya hecha (200 con `Idempotent-Replay: true`), sin crear otra y sin volver a descontar inventario. La misma llave con otro contenido o de otra persona da 409 `IDEMPOTENCY_CONFLICT`: nadie recibe el ticket de una venta ajena. Un reintento después de cerrar la caja devuelve la venta que sí se cobró, no "caja cerrada". La llave se reserva con un candado antes de buscar, y si dos peticiones llegan a competir por el índice único, la que pierde devuelve la venta de la ganadora; un choque ajeno a la llave no se disfraza de repetición. Una llave con mala forma da 422. Sin llave, cada cobro es una venta nueva (compatibilidad) |
 | **Criterio de aprobación** | Las 48 verificaciones pasan. Diez mutaciones hacen fallar la suite (comprobado sobre una copia del proyecto): no reconocer el reintento, aceptar la misma llave con otro contenido, una huella que ignora a quien cobra, una huella que ignora propina y descuento, buscar antes de tomar el candado, revisar la caja antes del reintento, perder la carrera sin devolver la venta ganadora, disfrazar cualquier choque de la base como repetición, responder 201 a una repetición y aceptar llaves de cualquier forma |
 | **Dependencias** | Migración `010_cobro_idempotente.sql` aplicada. **Pendiente:** el cliente aún no manda la llave, y falta una prueba de carrera real contra la base con dos conexiones |
+
+### PS-08 · Ticket compartido entre la caja y el celular
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-08` |
+| **Elemento** | `TicketService` · `tickets/logic.py` · `RedisDraftStore` · `PgDraftStore` · rutas `/tickets` · `DeviceRepository.operated_by` y `take_register` · `DeviceService.release_register` |
+| **Requisito cubierto** | Que lo que se escanea con el celular aparezca en la computadora de la misma caja (y al revés), sin que dos pantallas se pisen, sin perder el ticket si falla Redis o el servidor, y sin que nadie vea o toque la caja de otro |
+| **Prioridad** | Crítica (integridad del ticket y aislamiento entre negocios) |
+| **Entradas** | Agregar, cambiar cantidad, quitar y vaciar; la misma operación repetida; dos cambios simultáneos al mismo ticket (dos pantallas, y cuatro conexiones reales a la base); un "vaciar" tardío de un ticket ya cobrado; un ticket en el máximo de productos; Redis vacío, caído o con error; una copia atrasada en la base; la computadora con su token de equipo, el celular de quien opera la caja, el celular de otra persona, el token de equipo de otro negocio, una caja desautorizada o vencida; entrar otra persona a la caja, cerrar sesión en ella y cerrar la caja del día; productos inventados, insumos y operaciones mal formadas |
+| **Resultado esperado** | La computadora ve su caja por su token y el celular, por la caja que su dueño opera (sin QR extra). Una persona opera una sola caja a la vez. Agregar suma, y cambiar o quitar algo que ya no está no es un error; dos cambios simultáneos se conservan los dos (`WATCH/MULTI` en Redis, candado de la fila en la base). Una operación repetida no se aplica dos veces. Un "vaciar" con el identificador de otro ticket no borra el actual. El ticket vivo está en Redis con caducidad que se renueva con cada cambio, con copia en la base que solo avanza; si Redis se reinicia el ticket se recupera, y si cae todo sigue en la base. Cuando entra otra persona a la caja el ticket se vacía; al cerrar sesión en ella queda sin operador y sin ticket, y solo quien la opera puede soltarla; al cerrar la caja del día se borran los tickets. Una caja de otro negocio, desautorizada o vencida no se ve ni se toca. La consulta responde 204 sin cuerpo si la pantalla ya tiene lo último |
+| **Criterio de aprobación** | Las 92 verificaciones pasan. Contra la base real: `e2e_ticket.py` (tablet, celular y laptop simulados; se revierte sola) y `e2e_ticket_concurrencia.py` (cuatro conexiones por doce operaciones sobre el mismo ticket: no se pierde ninguna; sin el candado de la fila se pierden 25 de 48). Veintidós mutaciones hacen fallar la suite o el recorrido contra la base real (comprobado sobre una copia del proyecto): agregar que reemplaza en vez de sumar, repetidas que se vuelven a aplicar, vaciar sin mirar de qué ticket, vaciar sin estrenar identificador, revisión que no sube, sin tope de productos, clave de Redis sin el negocio, guardar en Redis sin vigilar a otras peticiones, sin caducidad, sin copia en la base, sin recuperar de la base, un fallo de Redis que tumba el ticket, un equipo de otro negocio que cuenta como caja, agregar productos que el negocio no vende, no responder nunca 204, entrar otra persona sin vaciar el ticket, cualquiera soltando la caja de otro, una persona operando varias cajas, cajas desautorizadas que siguen operándose, cerrar la caja sin limpiar tickets, copia atrasada que pisa a la nueva y falta del candado de la fila |
+| **Dependencias** | Migración `011_ticket_compartido.sql` aplicada. **Pendiente:** el camino con Redis se probó con un Redis simulado; falta probarlo contra el Redis de Render |
 
 ### PC-01 · Custodia de sesión y separación de identidades
 
@@ -316,8 +329,47 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Requisito cubierto** | Que cada puesto vea solo sus ventanas, que no exista la opción de bloquear la caja y que salir de una caja registradora la deje lista para la siguiente persona |
 | **Prioridad** | Alta |
 | **Entradas** | Empleado y gerencia, con y sin caja autorizada en el navegador; cerrar sesión en cada caso |
-| **Resultado esperado** | El empleado ve Cobrar, Escanear y Productos, y nada de gestión; la gerencia ve además el panel y la gestión. No existe "Bloquear caja" ni el botón correspondiente, esté o no autorizada la caja. En una caja autorizada, "Cerrar sesión" cierra la sesión de la persona y deja la caja en su pantalla de entrada; fuera de una caja, vuelve al inicio de sesión |
-| **Criterio de aprobación** | Las ocho verificaciones pasan |
+| **Resultado esperado** | El empleado ve Cobrar, Escanear y Productos, y nada de gestión; la gerencia ve además el panel y la gestión. No existe "Bloquear caja" ni el botón correspondiente, esté o no autorizada la caja. En una caja autorizada, "Cerrar sesión" primero avisa al servidor que la caja quedó libre (sin operador y con el ticket vacío) y después deja la caja en su pantalla de entrada; si el servidor falla o no hay conexión, a los 3 segundos cierra igual y una sola vez. Fuera de una caja, vuelve al inicio de sesión |
+| **Criterio de aprobación** | Las once verificaciones pasan. Dos mutaciones hacen fallar la suite (comprobado sobre una copia): cerrar sesión sin soltar la caja en el servidor y esperar al servidor sin tope de tiempo |
+| **Dependencias** | Ninguna |
+
+### PC-15 · Lógica del ticket compartido
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-15` |
+| **Elemento** | `ticket-sync-logic.ts` |
+| **Requisito cubierto** | Que las operaciones del ticket tengan la forma que acepta el servidor, que las líneas del servidor se muestren con su producto completo y que una respuesta vieja nunca regrese el ticket al pasado |
+| **Prioridad** | Alta |
+| **Entradas** | Agregar, cambiar cantidad (negativa, cero, enorme), quitar y vaciar con y sin identificador; llaves de operación y de ticket; líneas con productos que ya no están en el catálogo o con el catálogo sin cargar; listas en otro orden; respuestas que llegan desordenadas |
+| **Resultado esperado** | Las llaves tienen la forma segura que acepta el servidor y nunca se repiten. La cantidad nunca sale de 1 a 999. Las líneas conservan el orden del servidor y un producto desconocido se omite sin romper nada. Una respuesta solo vale si salió después de la última aplicada |
+| **Criterio de aprobación** | Las veinticinco verificaciones pasan |
+| **Dependencias** | Ninguna |
+
+### PC-16 · Servicio de sincronización del ticket
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-16` |
+| **Elemento** | `TicketSyncService` |
+| **Requisito cubierto** | Que lo que se escanea en el celular aparezca en la computadora de la misma caja y al revés, y que no se pierda nada si se va el internet |
+| **Prioridad** | Crítica |
+| **Entradas** | Arranque con y sin caja; consultas con 200, 204 y error; cambios en orden, uno a la vez; un corte de internet y su regreso; errores 500, 404, 409 `TICKET_FULL` y 409 `NO_REGISTER`; respuestas que llegan desordenadas; cambios enviados antes de saber si hay caja |
+| **Resultado esperado** | Una sesión sin caja pregunta una vez y deja de preguntar. Con caja pregunta cada 1.2 s con la revisión y el ticket que ya tiene. Los cambios salen en orden; si no hay conexión esperan en la fila y se reenvían con la MISMA llave, y la lámpara avisa. Mientras haya cambios sin confirmar no se pisa lo que se ve. Un rechazo del servidor descarta ese cambio, avisa y vuelve a pedir el ticket completo; si ya no opera la caja, deja de sincronizar |
+| **Criterio de aprobación** | Las veintiocho verificaciones pasan. Seis mutaciones hacen fallar la suite (comprobado sobre una copia): pisar lo que se ve con cambios sin enviar, descartar el cambio al fallar la red, aplicar una consulta vieja, mandar cambios sin caja, seguir preguntando sin caja y mandar los cambios todos a la vez. Una séptima, quitar la guarda de orden al confirmar un cambio propio, no cambia nada observable (hoy no se consulta mientras hay cambios sin confirmar), así que es una defensa y no una regla que se pueda probar |
+| **Dependencias** | Ninguna |
+
+### PC-17 · Cobrar con el ticket compartido
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-17` |
+| **Elemento** | `PosComponent` · `SalesService.charge` |
+| **Requisito cubierto** | Que el ticket de Cobrar sea el mismo en la computadora y en el celular de la caja, y que cobrarlo en las dos no lo duplique |
+| **Prioridad** | Crítica (dinero e inventario) |
+| **Entradas** | Abrir Cobrar con y sin caja; lo que llega del otro dispositivo (agregado, vaciado o cobrado); agregar, subir, bajar, quitar y vaciar aquí; escanear con la cámara; cobrar, fallar y reintentar; cobrar un ticket ya cobrado en el otro dispositivo |
+| **Resultado esperado** | Lo que dice el servidor se ve en pantalla; si el otro dispositivo vació o cobró el ticket, aquí queda vacío y se avisa. Cada cambio se ve al instante y se manda al servidor (subir la cantidad manda la cantidad nueva, no "sumar uno"). Sin caja no se manda nada. El cobro lleva el identificador del ticket como `Idempotency-Key`; un reintento usa la misma llave y el siguiente ticket estrena otra. Tras cobrar se vacía el ticket compartido solo si sigue siendo ese. La lámpara muestra la caja y si está sincronizada |
+| **Criterio de aprobación** | Las dieciocho verificaciones pasan. Seis mutaciones hacen fallar la suite (comprobado sobre una copia): cobrar sin llave, usar otra llave distinta de la del ticket, no mandar lo que se agrega, vaciar cualquier ticket, reutilizar la llave local y mandar "agregar uno" en vez de la cantidad |
 | **Dependencias** | Ninguna |
 
 ---
@@ -354,9 +406,10 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-02 · Validación JSONB | 6 | ✅ Aprobado | — |
 | PS-03 · Inventario no negativo | 5 | ✅ Aprobado | — |
 | PS-04 · Caja y cobro de mostrador | 80 | ✅ Aprobado | — |
-| PS-05 · Equipo, puestos y permisos | 139 | ✅ Aprobado | — |
+| PS-05 · Equipo, puestos y permisos | 142 | ✅ Aprobado | — |
 | PS-06 · Equipos autorizados y acceso por QR | 74 | ✅ Aprobado | — |
 | PS-07 · Cobro idempotente | 48 | ✅ Aprobado | — |
+| PS-08 · Ticket compartido entre la caja y el celular | 92 | ✅ Aprobado | — |
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
 | PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
@@ -369,8 +422,11 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PC-11 · Acceso por QR y equipos autorizados | 19 | ✅ Aprobado | — |
 | PC-12 · Pantalla de la caja registradora | 6 | ✅ Aprobado | — |
 | PC-13 · Entrar a Cobrar sin esperar autorización | 9 | ✅ Aprobado | — |
-| PC-14 · Menú y salida del panel | 8 | ✅ Aprobado | — |
-| **TOTAL** | **519** | **20 de 20 aprobados** | |
+| PC-14 · Menú y salida del panel | 11 | ✅ Aprobado | — |
+| PC-15 · Lógica del ticket compartido | 25 | ✅ Aprobado | — |
+| PC-16 · Servicio de sincronización del ticket | 28 | ✅ Aprobado | — |
+| PC-17 · Cobrar con el ticket compartido | 18 | ✅ Aprobado | — |
+| **TOTAL** | **688** | **24 de 24 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
@@ -426,6 +482,9 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PS-05 y PS-06 de punta a punta contra la base real (se revierten solas; suponen una base limpia) | `Kard/tests/integracion/e2e_equipo.py` |
 | PS-06 | `Kard/tests/test_dispositivos.py` |
 | PS-07 | `Kard/tests/test_cobro_idempotente.py` |
+| PS-08 | `Kard/tests/test_ticket_compartido.py` |
+| PS-08 de punta a punta contra la base real (se revierte sola) | `Kard/tests/integracion/e2e_ticket.py` |
+| PS-08, concurrencia real con cuatro conexiones (crea y borra una caja temporal) | `Kard/tests/integracion/e2e_ticket_concurrencia.py` |
 | Dobles y fixtures | `Kard/tests/conftest.py` |
 | PC-01 | `Kard-client/src/app/core/services/auth.service.spec.ts` |
 | PC-02 | `Kard-client/src/app/auth/auth-page/auth-page.component.spec.ts` |
@@ -439,3 +498,6 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PC-12 | `Kard-client/src/app/register-mode/register-mode.component.spec.ts` |
 | PC-13 | `Kard-client/src/app/dashboard/pos/pos.component.spec.ts` |
 | PC-14 | `Kard-client/src/app/dashboard/layout/dashboard-layout.component.spec.ts` |
+| PC-15 | `Kard-client/src/app/core/ticket-sync-logic.spec.ts` |
+| PC-16 | `Kard-client/src/app/core/services/ticket-sync.service.spec.ts` |
+| PC-17 | `Kard-client/src/app/dashboard/pos/pos.component.spec.ts` (segunda parte del archivo) |
