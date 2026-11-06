@@ -39,7 +39,7 @@ class CartService:
     def _redis(self):
         r = get_redis()
         if r is None:
-            raise CartUnavailableError("Cart service temporarily unavailable")
+            raise CartUnavailableError("El carrito no está disponible por el momento")
         return r
 
     def _get_tenant(self, slug: str):

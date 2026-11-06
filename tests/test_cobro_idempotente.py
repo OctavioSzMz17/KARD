@@ -365,14 +365,18 @@ class TestCobroPorHTTP:
             def __init__(self, db):
                 pass
 
-            def create_pos_sale_idempotent(self, tenant_id, user_id, payload, cashier=None, idempotency_key=None):
+            def create_pos_sale_idempotent(self, tenant_id, user_id, payload, cashier=None, idempotency_key=None, register_name=None):
                 visto["llave"] = idempotency_key
+                visto["cajero"] = cashier
+                visto["caja"] = register_name
                 return _respuesta_de_venta(), ServicioFalso.repetida
 
         monkeypatch.setattr(orders_routes, "OrderService", ServicioFalso)
+        monkeypatch.setattr(orders_routes, "find_register", lambda db, user, device: visto.get("registro"))
         app.dependency_overrides[get_current_user] = lambda: CurrentUser(
             user_id="u_dueno", tenant_id="t_aaa", business_type="restaurant",
             role="business_admin", email="dueno@example.com", job_title=P.title_from_position(P.OWNER),
+            full_name="Octavio Sánchez Ruiz",
         )
         app.dependency_overrides[get_db] = lambda: SimpleNamespace()
         try:
@@ -397,6 +401,22 @@ class TestCobroPorHTTP:
         assert r.status_code == 200
         assert r.headers["idempotent-replay"] == "true"
         assert r.json()["order_id"] == "ord_1"
+
+    def test_el_ticket_lleva_el_nombre_corto_de_quien_cobra_no_su_correo(self, cliente):
+        c, visto, _ = cliente
+        c.post("/api/v1/orders/business/sales", json=self.CUERPO, headers={"Idempotency-Key": LLAVE})
+        assert visto["cajero"] == "Octavio R."
+
+    def test_y_la_caja_desde_la_que_se_cobro(self, cliente):
+        c, visto, _ = cliente
+        visto["registro"] = SimpleNamespace(id="dv_1", name="Caja 1")
+        c.post("/api/v1/orders/business/sales", json=self.CUERPO, headers={"Idempotency-Key": LLAVE})
+        assert visto["caja"] == "Caja 1"
+
+    def test_sin_caja_la_venta_no_lleva_nombre_de_caja(self, cliente):
+        c, visto, _ = cliente
+        c.post("/api/v1/orders/business/sales", json=self.CUERPO, headers={"Idempotency-Key": LLAVE})
+        assert visto["caja"] is None
 
     def test_sin_cabecera_sigue_funcionando(self, cliente):
         c, visto, _ = cliente

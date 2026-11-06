@@ -49,9 +49,9 @@ class CreateUserRequest(BaseModel):
     @classmethod
     def password_strength(cls, v: str) -> str:
         if not any(ch.isdigit() for ch in v):
-            raise ValueError("Password must contain at least one digit")
+            raise ValueError("La contraseña debe llevar al menos un número")
         if not any(ch.isalpha() for ch in v):
-            raise ValueError("Password must contain at least one letter")
+            raise ValueError("La contraseña debe llevar al menos una letra")
         return v
 
 
@@ -136,16 +136,16 @@ class TenantRegistrationRequest(BaseModel):
     def business_name_not_blank(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("business_name cannot be blank")
+            raise ValueError("El nombre del negocio no puede estar vacío")
         return v
 
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:
         if not any(ch.isdigit() for ch in v):
-            raise ValueError("Password must contain at least one digit")
+            raise ValueError("La contraseña debe llevar al menos un número")
         if not any(ch.isalpha() for ch in v):
-            raise ValueError("Password must contain at least one letter")
+            raise ValueError("La contraseña debe llevar al menos una letra")
         return v
 
 

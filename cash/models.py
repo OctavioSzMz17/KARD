@@ -31,6 +31,16 @@ class MethodTotal(BaseModel):
     total: Decimal = Decimal("0.00")
 
 
+class CashierTotal(BaseModel):
+    """Lo que cobró una persona en el turno (nombre completo y código, para el corte)."""
+
+    user_id: Optional[str] = None
+    name: str
+    code: Optional[str] = None
+    count: int = 0
+    total: Decimal = Decimal("0.00")
+
+
 class CashSummary(BaseModel):
     """
     Lo que pasó en el turno.
@@ -51,6 +61,8 @@ class CashSummary(BaseModel):
     # Las propinas cobradas en efectivo van dentro del cajón.
     tips_cash: Decimal = Decimal("0.00")
     excluded_count: int = 0
+    # Ventas por cajero, de más a menos. Los cortes anteriores a esto vienen sin lista.
+    by_cashier: list[CashierTotal] = []
 
 
 class CashSessionResponse(BaseModel):

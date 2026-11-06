@@ -115,7 +115,7 @@ def validate_metadata(business_type: str, product_type: str, metadata: dict[str,
     try:
         jsonschema_validate(instance=metadata, schema=schema)
     except JSONSchemaValidationError as exc:
-        raise InvalidMetadataError(f"Invalid metadata: {exc.message}") from exc
+        raise InvalidMetadataError(f"Datos del producto no válidos: {exc.message}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ class ProductCreate(BaseModel):
     def name_not_blank(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("name cannot be blank")
+            raise ValueError("El nombre no puede estar vacío")
         return v
 
     @field_validator("sku", "barcode")
@@ -200,7 +200,7 @@ class ProductUpdate(BaseModel):
             return v
         v = v.strip()
         if not v:
-            raise ValueError("name cannot be blank")
+            raise ValueError("El nombre no puede estar vacío")
         return v
 
     @field_validator("sku", "barcode")

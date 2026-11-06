@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from audit_logging.audit import log_operation
 from cash.models import (
+    CashierTotal,
     CashSessionListResponse,
     CashSessionResponse,
     CashSummary,
@@ -71,6 +72,10 @@ def build_summary(aggregates: dict) -> CashSummary:
         tips_total=to_money(tips_total),
         tips_cash=to_money(aggregates["tips_cash"]),
         excluded_count=aggregates["excluded"],
+        by_cashier=[
+            CashierTotal(**{**row, "total": to_money(row["total"])})
+            for row in aggregates.get("by_cashier", [])
+        ],
     )
 
 

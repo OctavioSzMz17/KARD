@@ -28,7 +28,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 _CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
+    detail="No se pudo validar tu sesión",
     headers={"WWW-Authenticate": "Bearer"},
 )
 
@@ -107,7 +107,7 @@ def get_current_user(
             if redis_client.exists(f"auth:blacklist:{token}"):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token has been revoked",
+                    detail="Tu sesión ya no es válida; inicia sesión de nuevo",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
         except HTTPException:
@@ -232,7 +232,7 @@ def require_role(*roles: str):
         if current_user.role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions for this operation",
+                detail="No tienes permiso para esta operación",
             )
         return current_user
 

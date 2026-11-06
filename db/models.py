@@ -325,6 +325,9 @@ class Order(Base):
     idempotency_key = Column(String(80), nullable=True)
     request_hash = Column(String(64), nullable=True)
 
+    # Caja desde la que se cobró (migración 012): copia del nombre de ese momento.
+    register_name = Column(String(60), nullable=True)
+
     # Datos de la entrega. La dirección es una COPIA del momento de la compra,
     # no una referencia: si el cliente la edita después, el pedido histórico
     # debe seguir diciendo a dónde se mandó.

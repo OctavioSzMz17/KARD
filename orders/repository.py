@@ -1,13 +1,14 @@
 """Data-access layer for the orders module."""
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, or_, text
+from sqlalchemy import Date, cast, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
-from db.models import Consumer, Order, OrderItem
+from cash.repository import COUNTED_STATUSES
+from db.models import Consumer, Order, OrderItem, User
 
 
 class OrderRepository:
@@ -141,13 +142,15 @@ class OrderRepository:
         date_to: Optional[datetime] = None,
         status: Optional[str] = None,
         search: Optional[str] = None,
-    ) -> tuple[list[tuple[Order, Consumer]], int]:
-        """Return `(order, consumer)` pairs for one page, newest first."""
+    ) -> tuple[list[tuple[Order, Consumer, User]], int]:
+        """Return `(order, consumer, user)` triples for one page, newest first (user = quien cobró)."""
         q = self._sales_query(tenant_id, date_from, date_to, status, search)
         total = q.count()
         rows = (
-            q.options(joinedload(Order.items), joinedload(Order.tenant))
+            q.outerjoin(User, User.id == Order.user_id)
+            .options(joinedload(Order.items), joinedload(Order.tenant))
             .add_entity(Consumer)
+            .add_entity(User)
             .order_by(Order.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -210,3 +213,55 @@ class OrderRepository:
             "tips": Decimal(tips),
             "discounts": Decimal(discounts),
         }
+
+    # ── Dashboard: ventas reales ──────────────────────────────────────
+
+    def daily_sales(
+        self, tenant_id: str, since_utc: datetime, tz_offset_minutes: int
+    ) -> dict[date, tuple[Decimal, int]]:
+        """
+        Lo vendido por día (fecha LOCAL del negocio) desde `since_utc`, solo ventas cobradas.
+
+        La fecha local es la hora UTC menos el desfase del navegador: una venta de las 9 de la
+        noche en Ciudad de México ya es "mañana" en UTC, pero sigue siendo de hoy.
+        """
+        local_day = cast(
+            func.timezone("UTC", Order.created_at) - timedelta(minutes=tz_offset_minutes), Date
+        )
+        rows = (
+            self.db.query(local_day, func.coalesce(func.sum(Order.total), 0), func.count(Order.id))
+            .filter(
+                Order.tenant_id == tenant_id,
+                Order.created_at >= since_utc,
+                Order.status.in_(COUNTED_STATUSES),
+            )
+            .group_by(local_day)
+            .all()
+        )
+        return {day: (Decimal(revenue), int(n)) for day, revenue, n in rows}
+
+    def top_products(self, tenant_id: str, since_utc: datetime, limit: int = 5) -> list[dict]:
+        """Los productos que más se vendieron (por unidades) desde `since_utc`, solo ventas cobradas."""
+        units = func.sum(OrderItem.quantity)
+        rows = (
+            self.db.query(
+                OrderItem.product_id,
+                func.max(OrderItem.product_name),
+                units,
+                func.coalesce(func.sum(OrderItem.subtotal), 0),
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .filter(
+                Order.tenant_id == tenant_id,
+                Order.created_at >= since_utc,
+                Order.status.in_(COUNTED_STATUSES),
+            )
+            .group_by(OrderItem.product_id)
+            .order_by(units.desc(), func.max(OrderItem.product_name))
+            .limit(limit)
+            .all()
+        )
+        return [
+            {"product_id": r[0], "name": r[1], "units": int(r[2]), "revenue": Decimal(r[3])}
+            for r in rows
+        ]

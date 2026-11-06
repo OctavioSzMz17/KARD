@@ -42,7 +42,10 @@ from core.exceptions import (
 )
 from core.redis_client import get_redis
 from core.tenant_config import read_fulfillment
-from db.models import Consumer, InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant
+from db.models import Consumer, InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant, User
+from datetime import datetime, timezone
+
+from orders.cashier import full_name as cashier_full_name
 from orders.idempotency import request_fingerprint
 from orders.models import (
     CreateOrderRequest,
@@ -52,10 +55,12 @@ from orders.models import (
     OrderResponse,
     SaleResponse,
     SalesReportResponse,
+    SalesStatsResponse,
     SalesSummary,
     SkippedItemResponse,
 )
-from orders.money import change_for, discount_amount, order_total, to_money
+from orders.money import ZERO, change_for, discount_amount, order_total, to_money
+from orders.stats import average_ticket, fill_days, local_today, window_start_utc
 from orders.repository import OrderRepository
 from storefront.repository import StorefrontRepository
 from utils.helpers import generate_id
@@ -148,10 +153,11 @@ class OrderService:
         payload: CreatePosSaleRequest,
         cashier: str | None = None,
         idempotency_key: str | None = None,
+        register_name: str | None = None,
     ) -> OrderResponse:
         """Cobra y devuelve la venta; ver `create_pos_sale_idempotent`."""
         return self.create_pos_sale_idempotent(
-            tenant_id, user_id, payload, cashier, idempotency_key
+            tenant_id, user_id, payload, cashier, idempotency_key, register_name
         )[0]
 
     def create_pos_sale_idempotent(
@@ -161,6 +167,7 @@ class OrderService:
         payload: CreatePosSaleRequest,
         cashier: str | None = None,
         idempotency_key: str | None = None,
+        register_name: str | None = None,
     ) -> tuple[OrderResponse, bool]:
         """
         Venta capturada por un empleado del negocio. Devuelve `(venta, repetida)`.
@@ -263,6 +270,7 @@ class OrderService:
                 cash_session_id=cash_session.id,
                 idempotency_key=idempotency_key,
                 request_hash=fingerprint,
+                register_name=register_name,
             )
             self.db.commit()
         except IntegrityError:
@@ -468,6 +476,7 @@ class OrderService:
         cash_session_id: str | None = None,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
+        register_name: str | None = None,
     ) -> tuple[Order, list[dict]]:
         total = Decimal("0.00")
         items_data: list[dict] = []
@@ -539,6 +548,7 @@ class OrderService:
             cash_session_id=cash_session_id,
             idempotency_key=idempotency_key,
             request_hash=request_hash,
+            register_name=register_name,
             table_number=table_number,
             shipping_address=shipping_address,
             customer_name=customer_name,
@@ -594,11 +604,32 @@ class OrderService:
 
         return SalesReportResponse(
             business_name=tenant.business_name if tenant else "",
-            items=[self._sale_to_response(order, consumer) for order, consumer in rows],
+            items=[self._sale_to_response(order, consumer, user) for order, consumer, user in rows],
             summary=SalesSummary(**summary),
             total=total,
             page=page,
             page_size=page_size,
+        )
+
+    def stats(self, tenant_id: str, days: int, tz_offset_minutes: int) -> SalesStatsResponse:
+        """
+        Ventas cobradas de los últimos `days` días (el de hoy incluido) y lo más vendido, para el
+        Dashboard. Los días son los del negocio: se cuentan con el desfase del navegador.
+        """
+        today = local_today(datetime.now(timezone.utc), tz_offset_minutes)
+        since = window_start_utc(today, days, tz_offset_minutes)
+
+        per_day = self.repo.daily_sales(tenant_id, since, tz_offset_minutes)
+        filled = fill_days(per_day, today, days)
+        revenue = sum((row["revenue"] for row in filled), ZERO)
+        orders = sum(row["orders"] for row in filled)
+
+        return SalesStatsResponse(
+            days=filled,
+            top_products=self.repo.top_products(tenant_id, since),
+            total_revenue=to_money(revenue),
+            total_orders=orders,
+            average_ticket=average_ticket(revenue, orders),
         )
 
     def update_sale_status(
@@ -616,7 +647,7 @@ class OrderService:
         """
         order = self.repo.get_by_id_for_tenant(order_id, tenant_id)
         if order is None:
-            raise OrderNotFoundError("Order not found")
+            raise OrderNotFoundError("Pedido no encontrado")
 
         if new_status is not None:
             order.status = new_status
@@ -632,10 +663,15 @@ class OrderService:
             if order.consumer_id
             else None
         )
-        return self._sale_to_response(order, consumer)
+        user = (
+            self.db.query(User).filter(User.id == order.user_id).first()
+            if order.user_id
+            else None
+        )
+        return self._sale_to_response(order, consumer, user)
 
     @staticmethod
-    def _sale_to_response(order: Order, consumer) -> SaleResponse:
+    def _sale_to_response(order: Order, consumer, user=None) -> SaleResponse:
         items = [
             OrderItemResponse(
                 product_id=item.product_id,
@@ -677,6 +713,9 @@ class OrderService:
             table_number=order.table_number,
             items=items,
             created_at=order.created_at,
+            cashier_name=cashier_full_name(user.full_name, user.email) if user is not None else None,
+            cashier_code=user.employee_code if user is not None else None,
+            register_name=getattr(order, "register_name", None),
         )
 
     def list_orders(self, consumer_id: str, page: int, page_size: int) -> OrderListResponse:
@@ -720,6 +759,7 @@ class OrderService:
             change_given=order.change_given,
             customer_name=order.customer_name,
             cashier=cashier,
+            register_name=getattr(order, "register_name", None),
         )
 
     @staticmethod
@@ -753,4 +793,5 @@ class OrderService:
             amount_received=order.amount_received,
             change_given=order.change_given,
             customer_name=order.customer_name,
+            register_name=getattr(order, "register_name", None),
         )

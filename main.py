@@ -93,25 +93,25 @@ def _error(message: str) -> dict:
 @app.exception_handler(TenantAccessError)
 async def tenant_access_exception_handler(request: Request, exc: TenantAccessError):
     """Cross-tenant access attempts are rejected with 403 (Rules.md section 10)."""
-    return JSONResponse(status_code=403, content=_error("Access denied"))
+    return JSONResponse(status_code=403, content=_error("Acceso denegado"))
 
 
 @app.exception_handler(InvalidCredentialsError)
 async def invalid_credentials_exception_handler(request: Request, exc: InvalidCredentialsError):
     """Unknown email, wrong password, or inactive account → 401 (never reveal which)."""
-    return JSONResponse(status_code=401, content=_error("Invalid email or password"))
+    return JSONResponse(status_code=401, content=_error("Correo o contraseña incorrectos"))
 
 
 @app.exception_handler(EmailAlreadyExistsError)
 async def email_already_exists_exception_handler(request: Request, exc: EmailAlreadyExistsError):
     """Duplicate email on registration → 400."""
-    return JSONResponse(status_code=400, content=_error("Email is already registered"))
+    return JSONResponse(status_code=400, content=_error("Ese correo ya está registrado"))
 
 
 @app.exception_handler(TenantAlreadyExistsError)
 async def tenant_already_exists_exception_handler(request: Request, exc: TenantAlreadyExistsError):
     """Email already used by a tenant → 400."""
-    return JSONResponse(status_code=400, content=_error("Email is already registered"))
+    return JSONResponse(status_code=400, content=_error("Ese correo ya está registrado"))
 
 
 @app.exception_handler(AccountLockedError)
@@ -119,14 +119,14 @@ async def account_locked_exception_handler(request: Request, exc: AccountLockedE
     """Too many failed login attempts → 403, account temporarily locked."""
     return JSONResponse(
         status_code=403,
-        content=_error("Account temporarily locked due to too many failed login attempts"),
+        content=_error("Cuenta bloqueada por un rato: hubo demasiados intentos fallidos"),
     )
 
 
 @app.exception_handler(TenantNotFoundError)
 async def tenant_not_found_exception_handler(request: Request, exc: TenantNotFoundError):
     """Referenced tenant_id doesn't exist or isn't active → 404 (US-018)."""
-    return JSONResponse(status_code=404, content=_error("Tenant not found"))
+    return JSONResponse(status_code=404, content=_error("Negocio no encontrado"))
 
 
 @app.exception_handler(UserCreationNotAllowedError)
@@ -138,13 +138,13 @@ async def user_creation_not_allowed_exception_handler(request: Request, exc: Use
 @app.exception_handler(ProductNotFoundError)
 async def product_not_found_exception_handler(request: Request, exc: ProductNotFoundError):
     """Unknown id, soft-deleted, or belongs to another tenant → 404 (Rules.md section 7.5)."""
-    return JSONResponse(status_code=404, content=_error("Product not found"))
+    return JSONResponse(status_code=404, content=_error("Producto no encontrado"))
 
 
 @app.exception_handler(DuplicateProductNameError)
 async def duplicate_product_name_exception_handler(request: Request, exc: DuplicateProductNameError):
     """Product name must be unique per tenant (`uq_product_name_tenant`) → 400."""
-    return JSONResponse(status_code=400, content=_error("A product with this name already exists"))
+    return JSONResponse(status_code=400, content=_error("Ya existe un producto con ese nombre"))
 
 
 @app.exception_handler(InsufficientStockError)
@@ -162,13 +162,13 @@ async def invalid_metadata_exception_handler(request: Request, exc: InvalidMetad
 @app.exception_handler(ImageNotFoundError)
 async def image_not_found_exception_handler(request: Request, exc: ImageNotFoundError):
     """Unknown image id, belongs to a different product, or different tenant → 404."""
-    return JSONResponse(status_code=404, content=_error("Image not found"))
+    return JSONResponse(status_code=404, content=_error("Imagen no encontrada"))
 
 
 @app.exception_handler(StorefrontNotFoundError)
 async def storefront_not_found_exception_handler(request: Request, exc: StorefrontNotFoundError):
     """Slug not found, tenant not public, or tenant inactive → 404 (indistinguishable by design)."""
-    return JSONResponse(status_code=404, content=_error("Storefront not found"))
+    return JSONResponse(status_code=404, content=_error("Tienda no encontrada"))
 
 
 @app.exception_handler(BillingUnavailableError)
@@ -189,12 +189,12 @@ async def plan_limit_exceeded_exception_handler(request: Request, exc: PlanLimit
 
 @app.exception_handler(ConsumerAlreadyExistsError)
 async def consumer_already_exists_exception_handler(request: Request, exc: ConsumerAlreadyExistsError):
-    return JSONResponse(status_code=400, content=_error("Email is already registered"))
+    return JSONResponse(status_code=400, content=_error("Ese correo ya está registrado"))
 
 
 @app.exception_handler(ConsumerNotFoundError)
 async def consumer_not_found_exception_handler(request: Request, exc: ConsumerNotFoundError):
-    return JSONResponse(status_code=404, content=_error("Consumer not found"))
+    return JSONResponse(status_code=404, content=_error("Cliente no encontrado"))
 
 
 @app.exception_handler(CartEmptyError)
@@ -204,12 +204,12 @@ async def cart_empty_exception_handler(request: Request, exc: CartEmptyError):
 
 @app.exception_handler(CartUnavailableError)
 async def cart_unavailable_exception_handler(request: Request, exc: CartUnavailableError):
-    return JSONResponse(status_code=503, content=_error("Cart service temporarily unavailable"))
+    return JSONResponse(status_code=503, content=_error("El carrito no está disponible por el momento"))
 
 
 @app.exception_handler(OrderNotFoundError)
 async def order_not_found_exception_handler(request: Request, exc: OrderNotFoundError):
-    return JSONResponse(status_code=404, content=_error("Order not found"))
+    return JSONResponse(status_code=404, content=_error("Pedido no encontrado"))
 
 
 @app.exception_handler(InvalidRecipeError)

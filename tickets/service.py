@@ -24,6 +24,21 @@ from tickets.repository import PgDraftStore, RedisDraftStore
 logger = logging.getLogger("kard.tickets")
 
 
+def find_register(db: Session, current_user: CurrentUser, device: Optional[Device]) -> Optional[Device]:
+    """
+    La caja cuyo ticket (y cuyas ventas) corresponden a esta sesión.
+
+      · La computadora de la caja manda su token de equipo: ese navegador ES la caja.
+      · El celular no lo tiene: su caja es la que esa persona opera (entró a ella por el QR de
+        desbloqueo o con sus datos), así no hace falta ningún QR extra.
+
+    Si no hay ninguna, es None.
+    """
+    if device is not None and device.tenant_id == current_user.tenant_id:
+        return device
+    return DeviceRepository(db).operated_by(current_user.tenant_id, current_user.user_id, datetime.now(timezone.utc))
+
+
 class TicketService:
     def __init__(self, db: Session, redis_client: Optional[redis.Redis] = None):
         self.db = db
@@ -42,9 +57,7 @@ class TicketService:
 
         Si no hay ninguna, el ticket se queda en la pantalla de quien lo arma.
         """
-        if device is not None and device.tenant_id == current_user.tenant_id:
-            return device
-        return DeviceRepository(self.db).operated_by(current_user.tenant_id, current_user.user_id, datetime.now(timezone.utc))
+        return find_register(self.db, current_user, device)
 
     # ── Leer ─────────────────────────────────────────────────────────
     def current(self, tenant_id: str, device_id: str) -> State:

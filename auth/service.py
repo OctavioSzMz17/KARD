@@ -246,11 +246,11 @@ class AuthService:
         another through this endpoint (by design: there is only one).
         """
         if current_user is not None:
-            raise UserCreationNotAllowedError("saas_admin accounts can only be created via the one-time bootstrap")
+            raise UserCreationNotAllowedError("La cuenta de la plataforma solo se crea en el arranque inicial")
         if self.users.count_by_role(UserRole.saas_admin.value) > 0:
-            raise UserCreationNotAllowedError("Bootstrap is closed: a platform owner already exists")
+            raise UserCreationNotAllowedError("El arranque ya se hizo: la plataforma ya tiene dueño")
         if not payload.tenant_id:
-            raise UserCreationNotAllowedError("tenant_id is required to create the platform owner account")
+            raise UserCreationNotAllowedError("Falta el negocio para crear la cuenta de la plataforma")
 
         tenant = self.tenants.get_by_id(payload.tenant_id)
         if tenant is None or not tenant.is_active:
@@ -260,20 +260,20 @@ class AuthService:
     def _resolve_target_tenant(self, payload: CreateUserRequest, current_user: Optional[CurrentUser]) -> str:
         """Resolve which tenant a new business_admin/staff account belongs to, by the caller's role."""
         if current_user is None:
-            raise UserCreationNotAllowedError("Authentication is required to create business_admin/staff accounts")
+            raise UserCreationNotAllowedError("Hay que iniciar sesión para crear cuentas del negocio")
 
         if current_user.role == UserRole.business_admin.value:
             return current_user.tenant_id  # never trust the request body (Rules.md section 7)
 
         if current_user.role == UserRole.saas_admin.value:
             if not payload.tenant_id:
-                raise UserCreationNotAllowedError("tenant_id is required when creating a user as saas_admin")
+                raise UserCreationNotAllowedError("Falta el negocio para crear el usuario")
             tenant = self.tenants.get_by_id(payload.tenant_id)
             if tenant is None or not tenant.is_active:
                 raise TenantNotFoundError(payload.tenant_id)
             return tenant.id
 
-        raise UserCreationNotAllowedError("Only saas_admin or business_admin accounts can create users")
+        raise UserCreationNotAllowedError("Solo el dueño de la plataforma o del negocio puede crear usuarios")
 
     # ------------------------------------------------------------------
     # Login — US-001

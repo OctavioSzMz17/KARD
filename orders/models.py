@@ -152,7 +152,9 @@ class OrderResponse(BaseModel):
     amount_received: Optional[Decimal] = None
     change_given: Optional[Decimal] = None
     customer_name: Optional[str] = None
+    # Lo que dice el ticket: quien cobró ("Eva P.") y desde qué caja ("Caja 1").
     cashier: Optional[str] = None
+    register_name: Optional[str] = None
 
 
 class OrderListResponse(BaseModel):
@@ -193,6 +195,10 @@ class SaleResponse(BaseModel):
     table_number: Optional[str] = None
     items: list[OrderItemResponse]
     created_at: datetime
+    # Quién cobró, para uso interno: nombre completo y código de empleado, y la caja.
+    cashier_name: Optional[str] = None
+    cashier_code: Optional[str] = None
+    register_name: Optional[str] = None
 
 
 class SalesSummary(BaseModel):
@@ -252,3 +258,35 @@ class SalesReportResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ── Dashboard: ventas reales de los últimos días ───────────────────────
+
+
+class DayStat(BaseModel):
+    """Lo vendido en un día del negocio (fecha local, no UTC)."""
+
+    date: str
+    revenue: Decimal
+    orders: int
+
+
+class TopProduct(BaseModel):
+    product_id: str
+    name: str
+    units: int
+    revenue: Decimal
+
+
+class SalesStatsResponse(BaseModel):
+    """
+    Ventas COBRADAS (pagadas o entregadas) de los últimos `days` días, para el Dashboard.
+
+    Los días sin ventas vienen con ceros: una gráfica que los omite miente.
+    """
+
+    days: list[DayStat]
+    top_products: list[TopProduct]
+    total_revenue: Decimal
+    total_orders: int
+    average_ticket: Optional[Decimal] = None

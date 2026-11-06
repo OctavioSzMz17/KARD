@@ -231,7 +231,7 @@ class ProductService:
         product = self._require_product(product_id, current_user.tenant_id)
         if payload.quantity > product.inventory_count:
             raise InsufficientStockError(
-                f"Cannot sell {payload.quantity} units — only {product.inventory_count} in stock"
+                f"No se pueden vender {payload.quantity} unidades: solo hay {product.inventory_count} en existencias"
             )
         return self._apply_stock_change(
             product=product,
@@ -310,7 +310,7 @@ class ProductService:
                 product.id,
                 action,
             )
-            raise InsufficientStockError(f"Stock changed concurrently — retry the {action} operation")
+            raise InsufficientStockError("El inventario cambió mientras se guardaba; intenta de nuevo")
 
         log_operation(
             tenant_id=current_user.tenant_id,

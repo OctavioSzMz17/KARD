@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from db.models import CashSession, Order, User
+from orders.cashier import full_name
 
 # Ventas que cuentan para el corte. `pending` aún no se cobró; `canceled` y
 # `refunded` devolvieron el dinero; `fulfilled` es el valor histórico de "entregada".
@@ -104,7 +105,29 @@ class CashRepository:
             .scalar()
             or 0
         )
+        # Quién cobró cuánto: el corte lo muestra por persona.
+        cashiers = (
+            self.db.query(
+                Order.user_id, User.full_name, User.employee_code, User.email,
+                func.count(Order.id), func.coalesce(func.sum(Order.total), 0),
+            )
+            .outerjoin(User, User.id == Order.user_id)
+            .filter(Order.cash_session_id == session_id, Order.status.in_(COUNTED_STATUSES))
+            .group_by(Order.user_id, User.full_name, User.employee_code, User.email)
+            .order_by(func.sum(Order.total).desc())
+            .all()
+        )
         return {
+            "by_cashier": [
+                {
+                    "user_id": c[0],
+                    "name": full_name(c[1], c[3]) or "Sin cajero",
+                    "code": c[2],
+                    "count": int(c[4]),
+                    "total": Decimal(c[5]),
+                }
+                for c in cashiers
+            ],
             "rows": [
                 {
                     "method": r[0],

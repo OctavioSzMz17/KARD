@@ -20,9 +20,9 @@ class ConsumerRegister(BaseModel):
     @classmethod
     def password_strength(cls, v: str) -> str:
         if not any(ch.isdigit() for ch in v):
-            raise ValueError("Password must contain at least one digit")
+            raise ValueError("La contraseña debe llevar al menos un número")
         if not any(ch.isalpha() for ch in v):
-            raise ValueError("Password must contain at least one letter")
+            raise ValueError("La contraseña debe llevar al menos una letra")
         return v
 
 

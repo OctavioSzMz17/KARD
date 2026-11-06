@@ -572,6 +572,7 @@ class TestCobrarNoExigeEquipoAutorizado:
                 return _respuesta_de_venta(), False
 
         monkeypatch.setattr(orders_routes, "OrderService", ServicioFalso)
+        monkeypatch.setattr(orders_routes, "find_register", lambda db, user, device: None)
         app.dependency_overrides[get_db] = lambda: SimpleNamespace()
 
         def enviar(puesto, headers=None):
@@ -594,8 +595,21 @@ class TestCobrarNoExigeEquipoAutorizado:
         assert r.status_code == 201, r.text
 
     @pytest.mark.parametrize("puesto", [P.AREA_LEAD, P.EMPLOYEE])
-    def test_un_token_de_equipo_invalido_tampoco_estorba(self, cobrar, puesto):
-        """El cobro ya no mira la cabecera del equipo: un token viejo o inventado no lo bloquea."""
+    def test_un_token_de_equipo_invalido_tampoco_estorba(self, cobrar, puesto, monkeypatch):
+        """
+        La cabecera del equipo solo sirve para saber desde qué caja se cobró: un token viejo o
+        inventado no se reconoce (no hay caja) pero tampoco bloquea el cobro.
+        """
+        from devices import dependencies as dev_deps
+
+        class RepoSinEquipos:
+            def __init__(self, db):
+                pass
+
+            def get_valid_by_token_hash(self, token_hash, now):
+                return None
+
+        monkeypatch.setattr(dev_deps, "DeviceRepository", RepoSinEquipos)
         r = cobrar(puesto, headers={"X-Device-Token": "inventado"})
         assert r.status_code == 201, r.text
 

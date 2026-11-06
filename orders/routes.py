@@ -27,6 +27,9 @@ from core.dependencies import (
     require_permission,
 )
 from db.database import get_db
+from db.models import Device
+from devices.dependencies import get_optional_device
+from orders.cashier import short_name
 from orders.idempotency import is_valid_key
 from orders.models import (
     CreateOrderRequest,
@@ -35,9 +38,11 @@ from orders.models import (
     OrderResponse,
     SaleResponse,
     SalesReportResponse,
+    SalesStatsResponse,
     UpdateSaleStatusRequest,
 )
 from orders.service import OrderService
+from tickets.service import find_register
 
 router = APIRouter()
 
@@ -75,6 +80,7 @@ def create_pos_sale(
     payload: CreatePosSaleRequest,
     response: Response,
     current_user: CurrentUser = Depends(require_permission(P.POS_SELL)),
+    device: Optional[Device] = Depends(get_optional_device),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ) -> OrderResponse:
@@ -93,6 +99,9 @@ def create_pos_sale(
     computadora: el equipo autorizado solo existe para la pantalla de la caja
     registradora (modo caja), no para cobrar.
 
+    La venta guarda desde qué caja se cobró: la computadora de la caja (por su token de equipo)
+    o la caja que opera quien cobra desde su celular. Sin caja, queda sin ese dato.
+
     Cobro idempotente: el cliente manda una llave por ticket en `Idempotency-Key`.
     Si el mismo cobro llega otra vez (doble clic, reintento tras perder la
     señal) se devuelve la venta ya hecha —200 y `Idempotent-Replay: true`— en
@@ -104,13 +113,15 @@ def create_pos_sale(
             status_code=422,
             detail="Idempotency-Key debe tener de 16 a 80 caracteres: letras, números, guion y guion bajo",
         )
+    register = find_register(db, current_user, device)
     sale, replayed = OrderService(db).create_pos_sale_idempotent(
         current_user.tenant_id,
         current_user.user_id,
         payload,
-        # Quién cobró, para el ticket: la parte local del correo, no el correo.
-        cashier=current_user.email.split("@")[0],
+        # Quién cobró, para el ticket: su nombre y la inicial del apellido ("Eva P."), no su correo.
+        cashier=short_name(current_user.full_name, current_user.email),
         idempotency_key=idempotency_key,
+        register_name=register.name if register is not None else None,
     )
     if replayed:
         response.status_code = status.HTTP_200_OK
@@ -159,6 +170,28 @@ def list_business_sales(
     return OrderService(db).list_sales(
         tenant_id, page, page_size, date_from, date_to, status_filter, search
     )
+
+
+@router.get(
+    "/business/stats",
+    dependencies=[Depends(require_permission(P.SALES_READ))],
+    response_model=SalesStatsResponse,
+    summary="Collected sales of the last days and best sellers, for the dashboard (B2B)",
+)
+def business_sales_stats(
+    days: int = Query(default=7, ge=1, le=31, description="Cuántos días, el de hoy incluido"),
+    tz_offset: int = Query(
+        default=0, ge=-840, le=840,
+        description="Minutos que hay que restar a la hora UTC para tener la hora local (`Date.getTimezoneOffset()`)",
+    ),
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+) -> SalesStatsResponse:
+    """
+    Ventas cobradas por día y los productos más vendidos. El tenant sale del JWT; los días son
+    los del negocio gracias al desfase que manda el navegador.
+    """
+    return OrderService(db).stats(tenant_id, days, tz_offset)
 
 
 @router.patch(

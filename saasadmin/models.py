@@ -26,7 +26,7 @@ class TenantCreateRequest(BaseModel):
     def business_name_not_blank(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("business_name cannot be blank")
+            raise ValueError("El nombre del negocio no puede estar vacío")
         return v
 
 

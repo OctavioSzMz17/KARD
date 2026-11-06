@@ -122,7 +122,7 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Prioridad** | Crítica (seguridad) |
 | **Entradas** | Los cinco puestos (dueño, gerente, subgerente, encargado de área, empleado); altas, cambios de puesto, bajas y cambios de contraseña de cada uno sobre cada otro; todas las rutas del negocio llamadas por un empleado y por un encargado; personas de otro negocio; códigos de empleado simultáneos; un puesto desconocido en la base |
 | **Resultado esperado** | El empleado solo cobra, consulta el catálogo y ve si la caja está abierta. El encargado de área suma ajustar inventario. Gerente y subgerente supervisan pero no tocan suscripción ni personalización. El dueño puede todo. Nadie registra ni modifica a alguien de su nivel o superior, nadie se sube el puesto ni se da de baja a sí mismo, y el dueño no queda a merced de nadie. Un puesto desconocido cae al más bajo, no al más alto. Una persona de otro negocio responde 404 (no se confirma que exista). Los códigos de empleado son por negocio y los genera el sistema, también con altas simultáneas. La contraseña nunca llega a la bitácora. **Ninguna ruta del negocio queda sin guardia de permiso**, y cada una pide exactamente el acordado. Un cambio de puesto o una baja surten efecto de inmediato con el mismo token |
-| **Criterio de aprobación** | Las 142 verificaciones pasan; las de punta a punta contra la base real también (se revierten solas). Cinco mutaciones de seguridad hacen fallar la suite: la jerarquía que deja tocar al par, una ruta de escritura sin guardia, un permiso de más al empleado, un puesto desconocido que cae al dueño y una consulta sin filtrar por negocio (esta última solo la detecta la prueba contra la base real) |
+| **Criterio de aprobación** | Las 143 verificaciones pasan; las de punta a punta contra la base real también (se revierten solas). Cinco mutaciones de seguridad hacen fallar la suite: la jerarquía que deja tocar al par, una ruta de escritura sin guardia, un permiso de más al empleado, un puesto desconocido que cae al dueño y una consulta sin filtrar por negocio (esta última solo la detecta la prueba contra la base real) |
 | **Dependencias** | Migración `008_equipo_y_puestos.sql` aplicada para la verificación contra base real |
 
 ### PS-06 · Equipos autorizados y acceso por QR
@@ -148,7 +148,7 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Prioridad** | Crítica (integridad del dinero y del inventario) |
 | **Entradas** | El mismo ticket enviado dos y tres veces con la misma llave; la misma llave con otra cantidad, otro importe o cobrando otra persona; la misma llave en otro negocio; un reintento después de cerrar la caja; llaves válidas e inválidas (largo, espacios, diagonales, saltos de línea); dos peticiones que compiten por la misma llave; cobros sin llave |
 | **Resultado esperado** | La segunda vez devuelve la venta ya hecha (200 con `Idempotent-Replay: true`), sin crear otra y sin volver a descontar inventario. La misma llave con otro contenido o de otra persona da 409 `IDEMPOTENCY_CONFLICT`: nadie recibe el ticket de una venta ajena. Un reintento después de cerrar la caja devuelve la venta que sí se cobró, no "caja cerrada". La llave se reserva con un candado antes de buscar, y si dos peticiones llegan a competir por el índice único, la que pierde devuelve la venta de la ganadora; un choque ajeno a la llave no se disfraza de repetición. Una llave con mala forma da 422. Sin llave, cada cobro es una venta nueva (compatibilidad) |
-| **Criterio de aprobación** | Las 48 verificaciones pasan. Diez mutaciones hacen fallar la suite (comprobado sobre una copia del proyecto): no reconocer el reintento, aceptar la misma llave con otro contenido, una huella que ignora a quien cobra, una huella que ignora propina y descuento, buscar antes de tomar el candado, revisar la caja antes del reintento, perder la carrera sin devolver la venta ganadora, disfrazar cualquier choque de la base como repetición, responder 201 a una repetición y aceptar llaves de cualquier forma |
+| **Criterio de aprobación** | Las 51 verificaciones pasan. Diez mutaciones hacen fallar la suite (comprobado sobre una copia del proyecto): no reconocer el reintento, aceptar la misma llave con otro contenido, una huella que ignora a quien cobra, una huella que ignora propina y descuento, buscar antes de tomar el candado, revisar la caja antes del reintento, perder la carrera sin devolver la venta ganadora, disfrazar cualquier choque de la base como repetición, responder 201 a una repetición y aceptar llaves de cualquier forma |
 | **Dependencias** | Migración `010_cobro_idempotente.sql` aplicada. **Pendiente:** el cliente aún no manda la llave, y falta una prueba de carrera real contra la base con dos conexiones |
 
 ### PS-08 · Ticket compartido entre la caja y el celular
@@ -163,6 +163,32 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Resultado esperado** | La computadora ve su caja por su token y el celular, por la caja que su dueño opera (sin QR extra). Una persona opera una sola caja a la vez. Agregar suma, y cambiar o quitar algo que ya no está no es un error; dos cambios simultáneos se conservan los dos (`WATCH/MULTI` en Redis, candado de la fila en la base). Una operación repetida no se aplica dos veces. Un "vaciar" con el identificador de otro ticket no borra el actual. El ticket vivo está en Redis con caducidad que se renueva con cada cambio, con copia en la base que solo avanza; si Redis se reinicia el ticket se recupera, y si cae todo sigue en la base. Cuando entra otra persona a la caja el ticket se vacía; al cerrar sesión en ella queda sin operador y sin ticket, y solo quien la opera puede soltarla; al cerrar la caja del día se borran los tickets. Una caja de otro negocio, desautorizada o vencida no se ve ni se toca. La consulta responde 204 sin cuerpo si la pantalla ya tiene lo último |
 | **Criterio de aprobación** | Las 92 verificaciones pasan. Contra la base real: `e2e_ticket.py` (tablet, celular y laptop simulados; se revierte sola) y `e2e_ticket_concurrencia.py` (cuatro conexiones por doce operaciones sobre el mismo ticket: no se pierde ninguna; sin el candado de la fila se pierden 25 de 48). Veintidós mutaciones hacen fallar la suite o el recorrido contra la base real (comprobado sobre una copia del proyecto): agregar que reemplaza en vez de sumar, repetidas que se vuelven a aplicar, vaciar sin mirar de qué ticket, vaciar sin estrenar identificador, revisión que no sube, sin tope de productos, clave de Redis sin el negocio, guardar en Redis sin vigilar a otras peticiones, sin caducidad, sin copia en la base, sin recuperar de la base, un fallo de Redis que tumba el ticket, un equipo de otro negocio que cuenta como caja, agregar productos que el negocio no vende, no responder nunca 204, entrar otra persona sin vaciar el ticket, cualquiera soltando la caja de otro, una persona operando varias cajas, cajas desautorizadas que siguen operándose, cerrar la caja sin limpiar tickets, copia atrasada que pisa a la nueva y falta del candado de la fila |
 | **Dependencias** | Migración `011_ticket_compartido.sql` aplicada. **Pendiente:** el camino con Redis se probó con un Redis simulado; falta probarlo contra el Redis de Render |
+
+### PS-09 · Quién cobró, desde qué caja, el corte por cajero y el Dashboard real
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-09` |
+| **Elemento** | `orders/cashier.py` · `OrderService` (cobro, reporte y estadísticas) · `orders/stats.py` · `OrderRepository.daily_sales` y `top_products` · `CashRepository.sales_aggregates` · `build_summary` · rutas `POST /orders/business/sales` y `GET /orders/business/stats` |
+| **Requisito cubierto** | Que el ticket diga quién cobró y desde qué caja sin entregar datos personales; que las vistas internas sepan quién cobró cada venta; que el corte sume por cajero; y que el Dashboard muestre las ventas reales de los últimos días con los días del negocio, no los de Greenwich |
+| **Prioridad** | Alta (dinero y reportes) |
+| **Entradas** | Nombres con uno, dos o más apellidos, con acentos, con espacios de más y sin nombre; ventas desde la computadora de la caja, desde el celular de quien la opera, sin caja y reintentadas; ventas pagadas, canceladas y de otro negocio; turnos abiertos, cerrados y cortes anteriores que no traen la lista de cajeros; zonas horarias (UTC, México, al oriente de UTC) y ventas cerca de la medianoche; semanas con días sin ventas; días y desfases fuera de rango; un empleado pidiendo las estadísticas |
+| **Resultado esperado** | El ticket lleva "Eva P." (el primer nombre y la inicial del último apellido; sin nombre, la parte local del correo; nunca el correo completo ni el apellido entero) y la caja "Caja 1". La venta guarda una **copia** del nombre de la caja de ese momento. Un reintento devuelve la caja de la venta original. El reporte trae nombre completo, código de empleado y caja; un pedido en línea no trae cajero. El corte suma cobrado y número de ventas por persona, de más a menos, y su total cuadra con el del turno; las ventas canceladas no cuentan; un corte cerrado conserva a los cajeros congelados. Las estadísticas cuentan solo ventas cobradas, por día del negocio (con el desfase del navegador), rellenan con ceros los días sin ventas, traen total, número de ventas y ticket promedio (sin promedio si no hubo ventas) y los 5 productos más vendidos. Cada negocio ve lo suyo; un empleado recibe 403 |
+| **Criterio de aprobación** | Las 61 verificaciones pasan. Contra la base real: `e2e_panel.py` (se revierte sola; cobra desde la laptop, el celular y sin caja; revisa reporte, corte, una venta cancelada, estadísticas en dos zonas horarias, que las unidades coincidan con la base y el aislamiento entre negocios). Treinta y una mutaciones hacen fallar la suite o el recorrido contra la base real (comprobado sobre una copia del proyecto): 22 en las pruebas unitarias (apellido completo en el ticket, inicial del apellido equivocado, correo completo sin nombre, sin capitalizar, "hoy" sin el desfase, ventana a medianoche UTC, desfase con el signo cambiado, días vacíos omitidos, promedio mal dividido, servicio o ruta que ignoran el desfase, caja sin guardar o perdida en el reintento, reporte sin código o con correo, ticket con correo como cajero, ruta que acepta cualquier cantidad de días, corte sin cajeros o sin redondear) y 9 que solo ve la base real (día contado en UTC, ventas canceladas en las gráficas, en lo más vendido y en el corte, lo más vendido al revés, estadísticas sin filtrar por negocio, corte sin ordenar, reporte que pierde al cajero y celular que no encuentra su caja) |
+| **Dependencias** | Migración `012_nombre_de_la_caja_en_la_venta.sql` aplicada para la verificación contra base real |
+
+### PS-10 · Mensajes en español
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-10` |
+| **Elemento** | Manejadores de error de `main.py` · `core/dependencies.py` · validaciones de los formularios y errores de los servicios |
+| **Requisito cubierto** | Que ningún mensaje que llegue a la pantalla del usuario esté en inglés ("Product not found", "Invalid email or password", "Password must contain at least one digit"…) |
+| **Prioridad** | Media (calidad de la interfaz) |
+| **Entradas** | Cada mensaje de error de los manejadores, de sesión y permisos, de validación de contraseñas y nombres, y de los servicios de usuarios, carrito, pedidos y productos |
+| **Resultado esperado** | Ninguno contiene palabras propias del inglés. El registro reconoce el correo repetido por su texto en español (y el cliente sigue entendiendo el del servidor anterior). Con la base real, la contraseña incorrecta dice "Correo o contraseña incorrectos", un producto inexistente "Producto no encontrado" y un correo repetido "ya está registrado" |
+| **Criterio de aprobación** | Las 10 verificaciones pasan, más las 3 de `e2e_panel.py`. Dos mutaciones (volver a poner un mensaje de error y uno de sesión en inglés) hacen fallar la suite |
+| **Dependencias** | Ninguna |
 
 ### PC-01 · Custodia de sesión y separación de identidades
 
@@ -330,7 +356,7 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Prioridad** | Alta |
 | **Entradas** | Empleado y gerencia, con y sin caja autorizada en el navegador; cerrar sesión en cada caso |
 | **Resultado esperado** | El empleado ve Cobrar, Escanear y Productos, y nada de gestión; la gerencia ve además el panel y la gestión. No existe "Bloquear caja" ni el botón correspondiente, esté o no autorizada la caja. En una caja autorizada, "Cerrar sesión" primero avisa al servidor que la caja quedó libre (sin operador y con el ticket vacío) y después deja la caja en su pantalla de entrada; si el servidor falla o no hay conexión, a los 3 segundos cierra igual y una sola vez. Fuera de una caja, vuelve al inicio de sesión |
-| **Criterio de aprobación** | Las once verificaciones pasan. Dos mutaciones hacen fallar la suite (comprobado sobre una copia): cerrar sesión sin soltar la caja en el servidor y esperar al servidor sin tope de tiempo |
+| **Criterio de aprobación** | Las quince verificaciones pasan (cuatro de ellas, del menú en español y sin opciones que no existen). Dos mutaciones hacen fallar la suite (comprobado sobre una copia): cerrar sesión sin soltar la caja en el servidor y esperar al servidor sin tope de tiempo; y dos más del menú: volver a ofrecer 'Customers' o volver a escribir 'Products' |
 | **Dependencias** | Ninguna |
 
 ### PC-15 · Lógica del ticket compartido
@@ -372,6 +398,58 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las dieciocho verificaciones pasan. Seis mutaciones hacen fallar la suite (comprobado sobre una copia): cobrar sin llave, usar otra llave distinta de la del ticket, no mandar lo que se agrega, vaciar cualquier ticket, reutilizar la llave local y mandar "agregar uno" en vez de la cantidad |
 | **Dependencias** | Ninguna |
 
+### PC-18 · Cuentas de las gráficas del Dashboard
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-18` |
+| **Elemento** | `chart-math.ts` |
+| **Requisito cubierto** | Que las gráficas se dibujen con lo que de verdad vendió el negocio, que un día sin ventas sea un dato (el piso) y que los nombres de los días sean los del negocio |
+| **Prioridad** | Alta |
+| **Entradas** | Series con ceros, con un solo día de ventas, proporcionales, con importes negativos, vacías y de un solo dato; fechas de una semana, de un solo día y que cruzan fin de mes y de año; cantidades vendidas de lo más vendido |
+| **Resultado esperado** | El valor más alto queda arriba (con margen) y el cero abajo, repartido parejo de borde a borde. Sin ventas es una línea plana en el piso, no una curva inventada. El resultado nunca cambia entre una llamada y otra. Los días salen del texto de la fecha sin correrse por la zona horaria y el último dice "Hoy". Una barra con algo vendido nunca desaparece |
+| **Criterio de aprobación** | Las veinte verificaciones pasan. Cinco mutaciones hacen fallar la suite (comprobado sobre una copia): la gráfica al revés, la línea sin ventas a media altura, el último día sin "Hoy", las barras que desaparecen y las barras con la proporción invertida |
+| **Dependencias** | Ninguna |
+
+### PC-19 · Dashboard con ventas reales
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-19` |
+| **Elemento** | `HomeComponent` |
+| **Requisito cubierto** | Que el inicio muestre lo que el servidor dice que se vendió (y no números aleatorios), con los días del negocio, y qué se ve sin ventas, mientras carga, con un error o sin permiso |
+| **Prioridad** | Alta |
+| **Entradas** | Respuestas con y sin ventas; una venta (singular); error del servidor y reintento; sesiones con y sin permiso de ver ventas; entrar dos veces con los mismos datos |
+| **Resultado esperado** | Pide 7 días con el desfase del navegador y la sesión del negocio. Muestra el total, cuántas ventas (singular o plural) y el ticket promedio. La línea es exactamente la de los importes de cada día, con las etiquetas de los días del negocio. Al volver a entrar la gráfica es idéntica. Lo más vendido se lista con sus unidades y barras proporcionales. Sin ventas: línea plana y un mensaje; sin ticket promedio inventado. Mientras llega dice "Cargando"; si falla lo avisa y deja reintentar. Quien no puede ver ventas no las pide ni ve esas tarjetas. Ya no existen la tendencia de stock ni el trazo decorativo inventados |
+| **Criterio de aprobación** | Las diecisiete verificaciones pasan. Seis mutaciones hacen fallar la suite (comprobado sobre una copia): pedir ventas sin permiso, pedir 30 días, dibujar cuántas ventas en vez de cuánto dinero, decir siempre que hay ventas, no avisar un error de carga y volver el trazo inventado |
+| **Dependencias** | Ninguna |
+
+### PC-20 · Quién cobró y desde qué caja (ticket, ventas y corte)
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-20` |
+| **Elemento** | `ReceiptComponent` · `SalesComponent` · `CutSheetComponent` · `CashComponent` |
+| **Requisito cubierto** | Que el ticket del cliente diga la caja y quién atendió con nombre e inicial, y que las vistas internas muestren el nombre completo y el código |
+| **Prioridad** | Alta |
+| **Entradas** | Tickets con y sin caja y con y sin cajero; un reporte con ventas de mostrador y pedidos en línea; la descarga CSV; el corte con y sin lista de cajeros, vacío, y el turno abierto |
+| **Resultado esperado** | El ticket dice "Caja: Caja 1" antes que "Atendió: Eva P."; sin caja o sin cajero omite esa línea; nunca muestra un correo ni el nombre completo. El reporte tiene la columna Cajero (nombre, código y caja) justo después de Cliente, y una raya en pedidos en línea. El CSV agrega Cajero y Caja, con las celdas vacías (no "null") en pedidos en línea. El corte, en pantalla y en la hoja impresa, lista a cada cajero; un corte anterior sin la lista se lee igual |
+| **Criterio de aprobación** | Las diecisiete verificaciones pasan. Ocho mutaciones hacen fallar la suite (comprobado sobre una copia): el ticket sin la caja, con la caja después o sin quien atendió, la hoja y la pantalla del corte sin cajeros, el reporte sin código o sin caja y el CSV sin cajero |
+| **Dependencias** | Ninguna |
+
+### PC-21 · Servicio de ventas (estadísticas y llave del cobro)
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-21` |
+| **Elemento** | `SalesService` |
+| **Requisito cubierto** | Que las estadísticas se pidan con la zona horaria del navegador y que el cobro mande la llave de idempotencia solo si hay una |
+| **Prioridad** | Alta |
+| **Entradas** | Estadísticas por defecto y de otro número de días; un cobro con y sin llave |
+| **Resultado esperado** | Pide 7 días con `tz_offset` igual al desfase real del navegador y con la sesión del negocio, sin mandar el negocio (sale del token). El cobro lleva `Idempotency-Key` solo cuando recibe una |
+| **Criterio de aprobación** | Las seis verificaciones pasan. Una mutación hace fallar la suite (comprobado sobre una copia): pedir las estadísticas sin el desfase de la zona horaria |
+| **Dependencias** | Ninguna |
+
 ---
 
 ## 3. Procedimiento de Pruebas (Test Procedure)
@@ -406,12 +484,14 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-02 · Validación JSONB | 6 | ✅ Aprobado | — |
 | PS-03 · Inventario no negativo | 5 | ✅ Aprobado | — |
 | PS-04 · Caja y cobro de mostrador | 80 | ✅ Aprobado | — |
-| PS-05 · Equipo, puestos y permisos | 142 | ✅ Aprobado | — |
+| PS-05 · Equipo, puestos y permisos | 143 | ✅ Aprobado | — |
 | PS-06 · Equipos autorizados y acceso por QR | 74 | ✅ Aprobado | — |
-| PS-07 · Cobro idempotente | 48 | ✅ Aprobado | — |
+| PS-07 · Cobro idempotente | 51 | ✅ Aprobado | — |
 | PS-08 · Ticket compartido entre la caja y el celular | 92 | ✅ Aprobado | — |
+| PS-09 · Quién cobró, caja, corte por cajero y Dashboard real | 61 | ✅ Aprobado | — |
+| PS-10 · Mensajes en español | 10 | ✅ Aprobado | — |
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
-| PC-02 · AuthPageComponent | 19 | ✅ Aprobado | — |
+| PC-02 · AuthPageComponent | 20 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
 | PC-05 · ExploreComponent | 11 | ✅ Aprobado | — |
 | PC-06 · Matemática del cobro | 26 | ✅ Aprobado | — |
@@ -422,11 +502,15 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PC-11 · Acceso por QR y equipos autorizados | 19 | ✅ Aprobado | — |
 | PC-12 · Pantalla de la caja registradora | 6 | ✅ Aprobado | — |
 | PC-13 · Entrar a Cobrar sin esperar autorización | 9 | ✅ Aprobado | — |
-| PC-14 · Menú y salida del panel | 11 | ✅ Aprobado | — |
+| PC-14 · Menú y salida del panel | 15 | ✅ Aprobado | — |
 | PC-15 · Lógica del ticket compartido | 25 | ✅ Aprobado | — |
 | PC-16 · Servicio de sincronización del ticket | 28 | ✅ Aprobado | — |
 | PC-17 · Cobrar con el ticket compartido | 18 | ✅ Aprobado | — |
-| **TOTAL** | **688** | **24 de 24 aprobados** | |
+| PC-18 · Cuentas de las gráficas del Dashboard | 20 | ✅ Aprobado | — |
+| PC-19 · Dashboard con ventas reales | 17 | ✅ Aprobado | — |
+| PC-20 · Quién cobró y desde qué caja | 17 | ✅ Aprobado | — |
+| PC-21 · Servicio de ventas | 6 | ✅ Aprobado | — |
+| **TOTAL** | **824** | **30 de 30 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
@@ -485,6 +569,8 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PS-08 | `Kard/tests/test_ticket_compartido.py` |
 | PS-08 de punta a punta contra la base real (se revierte sola) | `Kard/tests/integracion/e2e_ticket.py` |
 | PS-08, concurrencia real con cuatro conexiones (crea y borra una caja temporal) | `Kard/tests/integracion/e2e_ticket_concurrencia.py` |
+| PS-09 y PS-10 | `Kard/tests/test_panel_y_cajero.py` |
+| PS-09 y PS-10 de punta a punta contra la base real (se revierte sola) | `Kard/tests/integracion/e2e_panel.py` |
 | Dobles y fixtures | `Kard/tests/conftest.py` |
 | PC-01 | `Kard-client/src/app/core/services/auth.service.spec.ts` |
 | PC-02 | `Kard-client/src/app/auth/auth-page/auth-page.component.spec.ts` |
@@ -501,3 +587,7 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PC-15 | `Kard-client/src/app/core/ticket-sync-logic.spec.ts` |
 | PC-16 | `Kard-client/src/app/core/services/ticket-sync.service.spec.ts` |
 | PC-17 | `Kard-client/src/app/dashboard/pos/pos.component.spec.ts` (segunda parte del archivo) |
+| PC-18 | `Kard-client/src/app/dashboard/home/chart-math.spec.ts` |
+| PC-19 | `Kard-client/src/app/dashboard/home/home.component.spec.ts` |
+| PC-20 | `Kard-client/src/app/dashboard/pos/receipt.component.spec.ts` |
+| PC-21 | `Kard-client/src/app/core/services/sales.service.spec.ts` |

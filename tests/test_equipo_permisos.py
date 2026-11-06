@@ -554,6 +554,7 @@ ESPERADO = {
     ("GET", "/api/v1/products/{product_id}/recipe"): P.PRODUCTS_READ,
     ("POST", "/api/v1/orders/business/sales"): P.POS_SELL,
     ("GET", "/api/v1/orders/business/sales"): P.SALES_READ,
+    ("GET", "/api/v1/orders/business/stats"): P.SALES_READ,
     ("PATCH", "/api/v1/orders/business/sales/{order_id}/status"): P.SALES_MANAGE,
     ("GET", "/api/v1/cash/current"): P.CASH_VIEW,
     ("POST", "/api/v1/cash/open"): P.CASH_MANAGE,

@@ -241,7 +241,7 @@ else:
 r = c.post("/api/v1/orders/business/sales", headers=emp_dev, json={"items": [{"product_id": p["product_id"], "quantity": 2}],
                                                                   "payment_method": "cash", "amount_received": "1000"})
 check("el empleado cobra → 201", r.status_code == 201, r.text[:150])
-check("el ticket dice quién cobró (la parte local de su correo)", r.json().get("cashier") == "eva.empleada", str(r.json().get("cashier")))
+check("el ticket dice quién cobró (su nombre y la inicial del apellido)", r.json().get("cashier") == "Eva E.", str(r.json().get("cashier")))
 r = c.post("/api/v1/orders/business/sales", headers=emp, json={"items": [{"product_id": p["product_id"], "quantity": 1}], "payment_method": "card"})
 check("el mismo empleado cobra desde su propio celular, sin equipo autorizado → 201", r.status_code == 201, r.text[:150])
 check("el empleado no puede cerrar la caja → 403", c.post("/api/v1/cash/close", headers=emp, json={"counted_cash": "0"}).status_code == 403)
