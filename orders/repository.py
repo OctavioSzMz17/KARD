@@ -4,11 +4,14 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, cast, func, or_, text
+from sqlalchemy import Date, and_, cast, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from cash.repository import COUNTED_STATUSES
 from db.models import Consumer, Order, OrderItem, User
+
+#: Estados de entrega de un pedido que todavía hay que atender.
+ACTIVE_FULFILLMENT = ("preparing", "ready", "in_transit")
 
 
 class OrderRepository:
@@ -157,6 +160,32 @@ class OrderRepository:
             .all()
         )
         return rows, total
+
+    def list_online_queue(
+        self, tenant_id: str, closed_since: datetime
+    ) -> list[tuple[Order, Consumer, User]]:
+        """
+        Pedidos hechos por los clientes desde la tienda (no los del mostrador), para el tablero de
+        órdenes: todos los que siguen en marcha, sin importar de cuándo sean, y los ya cerrados
+        (entregados o cancelados) solo desde `closed_since`, para que el tablero no crezca sin fin.
+        El más antiguo primero: es al que le toca atenderse.
+        """
+        en_marcha = and_(
+            Order.fulfillment_status.in_(ACTIVE_FULFILLMENT),
+            Order.status.notin_(("canceled", "fulfilled")),
+        )
+        return (
+            self.db.query(Order)
+            .outerjoin(Consumer, Consumer.id == Order.consumer_id)
+            .outerjoin(User, User.id == Order.user_id)
+            .options(joinedload(Order.items), joinedload(Order.tenant))
+            .add_entity(Consumer)
+            .add_entity(User)
+            .filter(Order.tenant_id == tenant_id, Order.captured_by == "self")
+            .filter(or_(en_marcha, Order.created_at >= closed_since))
+            .order_by(Order.created_at.asc())
+            .all()
+        )
 
     def summarize_by_tenant(
         self,

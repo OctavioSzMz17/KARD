@@ -39,6 +39,7 @@ from products.models import (
     validate_metadata,
 )
 from products.repository import InventoryTransactionRepository, ProductRepository
+from products.stock_policy import tracks_stock
 from utils.helpers import generate_id
 
 logger = logging.getLogger("kard.products")
@@ -97,7 +98,7 @@ class ProductService:
             after=self._snapshot(product),
         )
         self._bust_storefront_cache(current_user.tenant_id)
-        return self._to_response(product)
+        return self._to_response(product, business_type=current_user.business_type)
 
     def list_products(
         self,
@@ -116,7 +117,7 @@ class ProductService:
             product_type=product_type,
         )
         return ProductListResponse(
-            items=self._to_responses(items, current_user.tenant_id),
+            items=self._to_responses(items, current_user.tenant_id, current_user.business_type),
             total=total,
             page=page,
             page_size=page_size,
@@ -124,7 +125,7 @@ class ProductService:
 
     def get_product(self, product_id: str, current_user: CurrentUser) -> ProductResponse:
         product = self._require_product(product_id, current_user.tenant_id)
-        return self._to_response(product)
+        return self._to_response(product, business_type=current_user.business_type)
 
     def find_by_code(self, code: str, current_user: CurrentUser) -> ProductResponse:
         """
@@ -143,7 +144,7 @@ class ProductService:
         )
         if product is None:
             raise ProductNotFoundError(code)
-        return self._to_response(product)
+        return self._to_response(product, business_type=current_user.business_type)
 
     def update_product(
         self, product_id: str, payload: ProductUpdate, current_user: CurrentUser
@@ -200,7 +201,7 @@ class ProductService:
             after=self._snapshot(product),
         )
         self._bust_storefront_cache(current_user.tenant_id)
-        return self._to_response(product)
+        return self._to_response(product, business_type=current_user.business_type)
 
     def soft_delete_product(self, product_id: str, current_user: CurrentUser) -> None:
         """Flip `is_deleted` — hard deletes are never performed (Rules.md / schema)."""
@@ -229,6 +230,7 @@ class ProductService:
     ) -> StockChangeResponse:
         """Decrease stock — never below zero (Rules.md / `products_inventory_non_negative`)."""
         product = self._require_product(product_id, current_user.tenant_id)
+        self._assert_tracks_stock(product, current_user)
         if payload.quantity > product.inventory_count:
             raise InsufficientStockError(
                 f"No se pueden vender {payload.quantity} unidades: solo hay {product.inventory_count} en existencias"
@@ -247,6 +249,7 @@ class ProductService:
     ) -> StockChangeResponse:
         """Increase stock (e.g. a new shipment arrived)."""
         product = self._require_product(product_id, current_user.tenant_id)
+        self._assert_tracks_stock(product, current_user)
         return self._apply_stock_change(
             product=product,
             action="restock",
@@ -258,8 +261,11 @@ class ProductService:
 
     def get_low_stock(self, current_user: CurrentUser) -> list[ProductResponse]:
         """Products whose `inventory_count` has fallen below their own `low_stock_threshold`."""
-        items = self.products.get_low_stock(current_user.tenant_id)
-        return self._to_responses(items, current_user.tenant_id)
+        items = [
+            p for p in self.products.get_low_stock(current_user.tenant_id)
+            if tracks_stock(current_user.business_type, p.product_type)
+        ]
+        return self._to_responses(items, current_user.tenant_id, current_user.business_type)
 
     # ------------------------------------------------------------------
     # Internals
@@ -380,7 +386,17 @@ class ProductService:
             return DuplicateProductCodeError("barcode", barcode or "")
         return DuplicateProductNameError(name)
 
-    def _to_responses(self, products: list[Product], tenant_id: str) -> list[ProductResponse]:
+    @staticmethod
+    def _assert_tracks_stock(product: Product, current_user: CurrentUser) -> None:
+        """Vender o resurtir un platillo no tiene sentido: se controla por sus insumos."""
+        if not tracks_stock(current_user.business_type, product.product_type):
+            raise InsufficientStockError(
+                "Los platillos no llevan existencias: se controlan por los insumos de su receta"
+            )
+
+    def _to_responses(
+        self, products: list[Product], tenant_id: str, business_type: Optional[str] = None
+    ) -> list[ProductResponse]:
         """
         Varios productos con sus imágenes en UNA consulta.
 
@@ -389,9 +405,11 @@ class ProductService:
         imágenes).
         """
         images = self.image_repo.list_for_owners(tenant_id, "product", [p.id for p in products])
-        return [self._to_response(p, images.get(p.id, [])) for p in products]
+        return [self._to_response(p, images.get(p.id, []), business_type) for p in products]
 
-    def _to_response(self, product: Product, raw_images=None) -> ProductResponse:
+    def _to_response(
+        self, product: Product, raw_images=None, business_type: Optional[str] = None
+    ) -> ProductResponse:
         from images.models import ImageResponse
         if raw_images is None:   # un solo producto (detalle, crear, editar): una consulta basta
             raw_images = self.image_repo.list_for_owner(product.tenant_id, "product", product.id)
@@ -416,6 +434,7 @@ class ProductService:
             price=product.price,
             inventory_count=product.inventory_count,
             low_stock_threshold=product.low_stock_threshold,
+            tracks_stock=tracks_stock(business_type, product.product_type),
             metadata=product.metadata_,
             is_deleted=product.is_deleted,
             sku=product.sku,

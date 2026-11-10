@@ -122,10 +122,15 @@ class TestValidacionMetadataJSONB:
 
 
 class TestStockNoNegativo:
-    """PS-03 — la venta se rechaza antes de tocar la base de datos."""
+    """
+    PS-03 — la venta se rechaza antes de tocar la base de datos.
+
+    Se prueba con un insumo: en un restaurante solo los insumos llevan existencias
+    (los platillos no, ver tests/test_platillos_sin_stock.py).
+    """
 
     def test_rechaza_vender_mas_de_lo_disponible(self, service_factory, tenant_a_user):
-        producto = make_product("p_001", tenant_a_user.tenant_id, stock=3)
+        producto = make_product("p_001", tenant_a_user.tenant_id, stock=3, product_type="insumo")
         svc = service_factory([producto])
 
         with pytest.raises(InsufficientStockError):
@@ -136,7 +141,7 @@ class TestStockNoNegativo:
         Ni el inventario, ni la bitácora, ni un commit: el rechazo ocurre
         antes de cualquier escritura.
         """
-        producto = make_product("p_001", tenant_a_user.tenant_id, stock=3)
+        producto = make_product("p_001", tenant_a_user.tenant_id, stock=3, product_type="insumo")
         svc = service_factory([producto])
 
         with pytest.raises(InsufficientStockError):
@@ -148,7 +153,7 @@ class TestStockNoNegativo:
 
     def test_venta_valida_descuenta_y_deja_bitacora(self, service_factory, tenant_a_user):
         """La venta correcta mueve stock y escribe su transacción, en un solo commit."""
-        producto = make_product("p_001", tenant_a_user.tenant_id, stock=10)
+        producto = make_product("p_001", tenant_a_user.tenant_id, stock=10, product_type="insumo")
         svc = service_factory([producto])
 
         resultado = svc.sell_product("p_001", StockChangeRequest(quantity=4), tenant_a_user)
@@ -166,7 +171,7 @@ class TestStockNoNegativo:
 
     def test_vender_exactamente_el_stock_disponible_deja_cero(self, service_factory, tenant_a_user):
         """Caso límite: vender todo es válido; vender uno más, no."""
-        producto = make_product("p_001", tenant_a_user.tenant_id, stock=7)
+        producto = make_product("p_001", tenant_a_user.tenant_id, stock=7, product_type="insumo")
         svc = service_factory([producto])
 
         resultado = svc.sell_product("p_001", StockChangeRequest(quantity=7), tenant_a_user)

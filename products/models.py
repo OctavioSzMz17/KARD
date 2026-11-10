@@ -233,6 +233,9 @@ class ProductResponse(BaseModel):
     price: Decimal
     inventory_count: int
     low_stock_threshold: int
+    # `False` en los platillos de un restaurante: no llevan existencias, solo
+    # sus insumos (products/stock_policy.py). El panel lo usa para no mostrarlas.
+    tracks_stock: bool = True
     metadata: dict[str, Any]
     is_deleted: bool
     sku: Optional[str] = None

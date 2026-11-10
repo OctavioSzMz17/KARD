@@ -43,7 +43,7 @@ from core.exceptions import (
 from core.redis_client import get_redis
 from core.tenant_config import read_fulfillment
 from db.models import Consumer, InventoryTransaction, Order, OrderItem, Product, ProductRecipe, Tenant, User
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from orders.cashier import full_name as cashier_full_name
 from orders.idempotency import request_fingerprint
@@ -53,6 +53,7 @@ from orders.models import (
     OrderItemResponse,
     OrderListResponse,
     OrderResponse,
+    OrdersQueueResponse,
     SaleResponse,
     SalesReportResponse,
     SalesStatsResponse,
@@ -61,7 +62,9 @@ from orders.models import (
 )
 from orders.money import ZERO, change_for, discount_amount, order_total, to_money
 from orders.stats import average_ticket, fill_days, local_today, window_start_utc
-from orders.repository import OrderRepository
+from orders.queue import queue_state
+from orders.repository import ACTIVE_FULFILLMENT, OrderRepository
+from products.stock_policy import tracks_stock
 from storefront.repository import StorefrontRepository
 from utils.helpers import generate_id
 
@@ -346,9 +349,14 @@ class OrderService:
     # ------------------------------------------------------------------
     # Phase 1 — analysis (row-locks every final + insumo involved)
     # ------------------------------------------------------------------
+    def _business_type_of(self, tenant_id: str) -> str | None:
+        """Tipo del negocio (restaurante, óptica…): de él depende qué productos llevan stock."""
+        return self.db.query(Tenant.business_type).filter(Tenant.id == tenant_id).scalar()
+
     def _analyze_cart(self, tenant_id: str, cart: dict) -> tuple[list[dict], list[dict]]:
         fulfillable: list[dict] = []
         unavailable: list[dict] = []
+        business_type = self._business_type_of(tenant_id)
 
         for product_id, entry in cart.items():
             quantity = int(entry["quantity"])
@@ -383,7 +391,10 @@ class OrderService:
                 .all()
             )
 
-            product_short = product.inventory_count < quantity
+            # Un platillo no tiene existencias propias: lo único que puede faltar
+            # son los insumos de su receta (products/stock_policy.py).
+            counts_stock = tracks_stock(business_type, product.product_type)
+            product_short = counts_stock and product.inventory_count < quantity
             missing: list[dict] = []
             ingredient_plan: list[tuple] = []
 
@@ -448,6 +459,7 @@ class OrderService:
                 "product": product,
                 "quantity": quantity,
                 "ingredients": ingredient_plan,
+                "tracks_stock": counts_stock,
             })
 
         return fulfillable, unavailable
@@ -485,18 +497,19 @@ class OrderService:
             product = plan["product"]
             quantity = plan["quantity"]
 
-            before = product.inventory_count
-            product.inventory_count = before - quantity
-            self.db.add(InventoryTransaction(
-                product_id=product.id,
-                tenant_id=tenant.id,
-                action="sell",
-                quantity_change=-quantity,
-                quantity_before=before,
-                quantity_after=product.inventory_count,
-                user_id=user_id,
-                notes=f"Venta {'mostrador' if captured_by == 'staff' else 'en línea'} (producto final)",
-            ))
+            if plan.get("tracks_stock", True):
+                before = product.inventory_count
+                product.inventory_count = before - quantity
+                self.db.add(InventoryTransaction(
+                    product_id=product.id,
+                    tenant_id=tenant.id,
+                    action="sell",
+                    quantity_change=-quantity,
+                    quantity_before=before,
+                    quantity_after=product.inventory_count,
+                    user_id=user_id,
+                    notes=f"Venta {'mostrador' if captured_by == 'staff' else 'en línea'} (producto final)",
+                ))
 
             # Cascade: decrement each ingredient of the recipe
             for insumo, need in plan["ingredients"]:
@@ -611,6 +624,22 @@ class OrderService:
             page_size=page_size,
         )
 
+    def online_queue(self, tenant_id: str, closed_hours: int = 24) -> OrdersQueueResponse:
+        """El tablero de órdenes: lo que sigue en marcha y lo cerrado en las últimas horas."""
+        closed_since = datetime.now(timezone.utc) - timedelta(hours=closed_hours)
+        rows = self.repo.list_online_queue(tenant_id, closed_since)
+        items = [self._sale_to_response(order, consumer, user) for order, consumer, user in rows]
+
+        counts = {"preparing": 0, "ready": 0, "in_transit": 0, "completed": 0, "canceled": 0}
+        awaiting_payment = 0
+        for sale in items:
+            state = queue_state(sale.status, sale.fulfillment_status)
+            counts[state] = counts.get(state, 0) + 1
+            if state in ACTIVE_FULFILLMENT and sale.status == "pending":
+                awaiting_payment += 1
+
+        return OrdersQueueResponse(items=items, counts=counts, awaiting_payment=awaiting_payment)
+
     def stats(self, tenant_id: str, days: int, tz_offset_minutes: int) -> SalesStatsResponse:
         """
         Ventas cobradas de los últimos `days` días (el de hoy incluido) y lo más vendido, para el
@@ -711,6 +740,7 @@ class OrderService:
             customer_name=display_name,
             customer_email=email,
             table_number=order.table_number,
+            shipping_address=getattr(order, "shipping_address", None),
             items=items,
             created_at=order.created_at,
             cashier_name=cashier_full_name(user.full_name, user.email) if user is not None else None,

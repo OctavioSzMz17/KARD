@@ -193,6 +193,8 @@ class SaleResponse(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
     table_number: Optional[str] = None
+    # A dónde se manda un pedido a domicilio (calle, colonia, teléfono, notas). Nulo en los demás.
+    shipping_address: Optional[dict] = None
     items: list[OrderItemResponse]
     created_at: datetime
     # Quién cobró, para uso interno: nombre completo y código de empleado, y la caja.
@@ -258,6 +260,23 @@ class SalesReportResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ── Tablero de órdenes en línea ────────────────────────────────────────
+
+
+class OrdersQueueResponse(BaseModel):
+    """
+    Los pedidos que hicieron los clientes desde la tienda, listos para mostrarse en columnas.
+
+    `counts` cuenta cada pedido en un solo estado: `canceled` si se canceló (por pago o por
+    entrega) y, si no, su estado de entrega (`preparing`, `ready`, `in_transit`, `completed`).
+    `awaiting_payment` son los que siguen activos y sin cobrar.
+    """
+
+    items: list[SaleResponse]
+    counts: dict[str, int]
+    awaiting_payment: int
 
 
 # ── Dashboard: ventas reales de los últimos días ───────────────────────

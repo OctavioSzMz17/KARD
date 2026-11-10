@@ -9,6 +9,7 @@ Cliente (JWT de consumer):
 Negocio (JWT de usuario):
   POST  /api/v1/orders/business/sales                      → venta de mostrador
   GET   /api/v1/orders/business/sales                      → reporte de ventas
+  GET   /api/v1/orders/business/queue                      → tablero de órdenes en línea
   PATCH /api/v1/orders/business/sales/{order_id}/status    → mover pago o entrega
 """
 
@@ -36,6 +37,7 @@ from orders.models import (
     CreatePosSaleRequest,
     OrderListResponse,
     OrderResponse,
+    OrdersQueueResponse,
     SaleResponse,
     SalesReportResponse,
     SalesStatsResponse,
@@ -192,6 +194,25 @@ def business_sales_stats(
     los del negocio gracias al desfase que manda el navegador.
     """
     return OrderService(db).stats(tenant_id, days, tz_offset)
+
+
+@router.get(
+    "/business/queue",
+    dependencies=[Depends(require_permission(P.SALES_READ))],
+    response_model=OrdersQueueResponse,
+    summary="Online orders from customers, for the orders board (B2B)",
+)
+def business_orders_queue(
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+) -> OrdersQueueResponse:
+    """
+    Los pedidos que hicieron los clientes desde la tienda: lo que sigue en marcha y lo cerrado en
+    las últimas 24 horas, más los conteos por estado. El tenant sale del JWT.
+
+    Las ventas del mostrador no aparecen aquí: ya se cobraron y entregaron en el momento.
+    """
+    return OrderService(db).online_queue(tenant_id)
 
 
 @router.patch(
