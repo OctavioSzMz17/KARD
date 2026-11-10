@@ -6,7 +6,9 @@ All styles are inlined — email clients strip external/class-based CSS. The few
 rules that cannot be inline (phone layout, dark mode) live in one <style> block
 in the head; clients that ignore it still get a complete, readable email.
 
-Colors follow the app: navy #14183a, indigo #4a5bcf.
+Look: black and white, no accent color. Hierarchy comes from contrast and weight.
+Color is reserved for states (green = done, amber = warning, red = problem).
+The web app still uses navy/indigo until it is moved to the same palette.
 """
 
 import html
@@ -14,9 +16,25 @@ from urllib.parse import urlparse
 
 from core.config import settings
 
-_NAVY = "#14183a"
-_INDIGO = "#4a5bcf"
-_RED = "#dc2626"
+# ── Palette ────────────────────────────────────────────────────────────────
+_INK = "#0a0a0b"      # black: header, headings, main button
+_RED = "#dc2626"      # only for the "payment failed" button
+_TEXT = "#3f3f46"     # body text
+_MUTED = "#71717a"    # labels and small print
+_FAINT = "#a1a1aa"    # footer address
+_LINE = "#e4e4e7"     # borders
+_SOFT = "#fafafa"     # quiet boxes
+_PAGE = "#f4f4f5"     # page background
+
+# Status strips: (background, border, text) in light mode.
+_STATUS = {
+    "ok":   ("#f0fdf4", "#86efac", "#15803d"),
+    "warn": ("#fffbeb", "#fcd34d", "#92400e"),
+    "bad":  ("#fef2f2", "#fca5a5", "#991b1b"),
+}
+
+_FONT = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+
 
 def _brand() -> str:
     """The product name, safe to drop into HTML. Comes from BRAND_NAME in the .env."""
@@ -28,45 +46,57 @@ def _domain() -> str:
     return urlparse(settings.APP_URL).netloc or settings.APP_URL
 
 
-_FONT = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
-
-
 def _esc(value: object) -> str:
     """Anything typed by a person goes through here before it lands in the HTML."""
     return html.escape(str(value), quote=True)
 
 
-def _button(url: str, label: str, color: str = _INDIGO) -> str:
-    """Call-to-action button built from a table so Outlook draws it too."""
+def _button(url: str, label: str, color: str | None = None) -> str:
+    """Call-to-action button built from a table so Outlook draws it too.
+
+    Black by default. A different `color` (the red of a failed payment) is kept
+    as is in dark mode; the black one flips to white so it does not vanish.
+    """
+    kind = "main" if color is None else "other"
+    color = color or _INK
     return f"""
       <table role="presentation" cellpadding="0" cellspacing="0" class="btn-wrap">
         <tr>
-          <td align="center" bgcolor="{color}" style="background:{color};border-radius:10px;">
-            <a href="{_esc(url)}" class="btn"
-               style="display:inline-block;padding:14px 30px;font-family:{_FONT};font-size:15px;font-weight:600;
-                      color:#ffffff;text-decoration:none;border-radius:10px;">{label}</a>
+          <td align="center" bgcolor="{color}" class="cell-{kind}" style="background:{color};border-radius:8px;">
+            <a href="{_esc(url)}" class="btn a-{kind}"
+               style="display:inline-block;padding:14px 32px;font-family:{_FONT};font-size:14px;font-weight:600;
+                      letter-spacing:0.3px;color:#ffffff;text-decoration:none;border-radius:8px;">{label}</a>
           </td>
         </tr>
       </table>"""
 
 
-def _callout(text: str, *, bg: str, border: str, color: str) -> str:
-    """A highlighted strip for warnings and results."""
+def _callout(text: str, *, kind: str) -> str:
+    """A highlighted strip for warnings and results. `kind`: ok, warn or bad."""
+    bg, border, color = _STATUS[kind]
     return f"""
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
         <tr>
-          <td style="background:{bg};border:1px solid {border};border-radius:10px;padding:14px 18px;
+          <td class="{kind}" style="background:{bg};border:1px solid {border};border-radius:8px;padding:14px 18px;
                      color:{color};font-size:14px;font-weight:600;line-height:1.5;">{text}</td>
         </tr>
       </table>"""
 
 
+def _link(url: str, *, size: int = 15) -> str:
+    """A web address shown as text: black and underlined, white in dark mode."""
+    return (
+        f'<a href="{_esc(url)}" class="lnk" style="font-family:{_FONT};color:{_INK};font-size:{size}px;'
+        f'font-weight:600;text-decoration:underline;word-break:break-all;">{_esc(url)}</a>'
+    )
+
+
 def _base(title: str, body: str, preheader: str = "") -> str:
-    """Shared layout: branded header, content slot, footer."""
+    """Shared layout: black header, content slot, footer."""
     # The line the inbox shows next to the subject. Hidden in the email itself.
     pre = (
         f'<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;'
-        f'font-size:1px;line-height:1px;color:#f1f2f8;">{_esc(preheader)}'
+        f'font-size:1px;line-height:1px;color:{_PAGE};">{_esc(preheader)}'
         f'{"&#847;&zwnj;&nbsp;" * 30}</div>'
         if preheader
         else ""
@@ -87,36 +117,44 @@ def _base(title: str, body: str, preheader: str = "") -> str:
       .btn {{ display: block !important; text-align: center !important; }}
     }}
     @media (prefers-color-scheme: dark) {{
-      .page {{ background: #0d1020 !important; }}
-      .card {{ background: #181c38 !important; border-color: #2a2f55 !important; }}
+      .page {{ background: #000000 !important; }}
+      .card {{ background: #111113 !important; border-color: #26262b !important; }}
       .card h1 {{ color: #ffffff !important; }}
-      .card p, .card li, .card td {{ color: #c9cde4 !important; }}
+      .card p, .card li, .card td {{ color: #d4d4d8 !important; }}
       .card strong {{ color: #ffffff !important; }}
-      .soft {{ background: #1f2447 !important; border-color: #2a2f55 !important; }}
-      .foot {{ background: #121530 !important; border-color: #2a2f55 !important; }}
+      .soft {{ background: #18181b !important; border-color: #26262b !important; }}
+      .foot {{ background: #0c0c0e !important; border-color: #26262b !important; }}
+      .lnk {{ color: #ffffff !important; }}
+      .cell-main {{ background: #ffffff !important; }}
+      .a-main {{ color: #0a0a0b !important; }}
+      .card td.ok {{ background: #052e16 !important; border-color: #166534 !important; color: #86efac !important; }}
+      .card td.warn {{ background: #422006 !important; border-color: #92400e !important; color: #fcd34d !important; }}
+      .card td.bad {{ background: #450a0a !important; border-color: #991b1b !important; color: #fca5a5 !important; }}
+      .card .okbox {{ background: #052e16 !important; border-color: #166534 !important; }}
     }}
   </style>
 </head>
-<body class="page" style="margin:0;padding:0;background:#f1f2f8;font-family:{_FONT};">
+<body class="page" style="margin:0;padding:0;background:{_PAGE};font-family:{_FONT};">
   {pre}
-  <table role="presentation" class="page" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f2f8;padding:32px 12px;">
+  <table role="presentation" class="page" width="100%" cellpadding="0" cellspacing="0" style="background:{_PAGE};padding:32px 12px;">
     <tr>
       <td align="center">
         <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;">
 
           <!-- Header -->
           <tr>
-            <td class="px" style="background:{_NAVY};border-radius:14px 14px 0 0;padding:26px 36px;">
-              <span style="font-family:{_FONT};color:#ffffff;font-size:22px;font-weight:800;letter-spacing:4px;">{_brand()}</span>
+            <td class="px" style="background:{_INK};border-radius:12px 12px 0 0;padding:28px 36px;">
+              <span style="font-family:{_FONT};color:#ffffff;font-size:17px;font-weight:600;letter-spacing:6px;">{_brand()}</span>
             </td>
           </tr>
+          <!-- Thin highlight under the header: a line of light that fades at both ends -->
           <tr>
-            <td style="background:{_INDIGO};height:4px;line-height:4px;font-size:0;">&nbsp;</td>
+            <td style="background:#52525b;background-image:linear-gradient(90deg,#0a0a0b 0%,#f4f4f5 50%,#0a0a0b 100%);height:2px;line-height:2px;font-size:0;">&nbsp;</td>
           </tr>
 
           <!-- Body -->
           <tr>
-            <td class="card px" style="background:#ffffff;padding:36px;border-left:1px solid #e8eaf0;border-right:1px solid #e8eaf0;
+            <td class="card px" style="background:#ffffff;padding:40px 36px;border-left:1px solid {_LINE};border-right:1px solid {_LINE};
                                        font-family:{_FONT};">
               {body}
             </td>
@@ -124,11 +162,11 @@ def _base(title: str, body: str, preheader: str = "") -> str:
 
           <!-- Footer -->
           <tr>
-            <td class="foot px" style="background:#f8f9fc;border:1px solid #e8eaf0;border-top:none;border-radius:0 0 14px 14px;padding:20px 36px;">
-              <p style="margin:0 0 4px;font-family:{_FONT};color:#8a8fa8;font-size:12px;line-height:1.6;">
+            <td class="foot px" style="background:{_SOFT};border:1px solid {_LINE};border-top:none;border-radius:0 0 12px 12px;padding:20px 36px;">
+              <p style="margin:0 0 4px;font-family:{_FONT};color:{_MUTED};font-size:12px;line-height:1.6;">
                 Este mensaje fue enviado por {_brand()}. Si no esperabas este correo, puedes ignorarlo.
               </p>
-              <p style="margin:0;font-family:{_FONT};color:#b0b4c8;font-size:12px;line-height:1.6;">
+              <p style="margin:0;font-family:{_FONT};color:{_FAINT};font-size:12px;line-height:1.6;">
                 {_esc(_domain())}
               </p>
             </td>
@@ -144,15 +182,15 @@ def _base(title: str, body: str, preheader: str = "") -> str:
 
 def _h1(text: str) -> str:
     return (
-        f'<h1 style="margin:0 0 12px;font-family:{_FONT};color:{_NAVY};font-size:24px;'
-        f'font-weight:700;line-height:1.3;letter-spacing:-0.3px;">{text}</h1>'
+        f'<h1 style="margin:0 0 14px;font-family:{_FONT};color:{_INK};font-size:24px;'
+        f'font-weight:600;line-height:1.3;letter-spacing:-0.4px;">{text}</h1>'
     )
 
 
-def _p(text: str, *, top: int = 0, bottom: int = 24, size: int = 15, color: str = "#4b5563") -> str:
+def _p(text: str, *, top: int = 0, bottom: int = 24, size: int = 15, color: str = _TEXT) -> str:
     return (
         f'<p style="margin:{top}px 0 {bottom}px;font-family:{_FONT};color:{color};'
-        f'font-size:{size}px;line-height:1.65;">{text}</p>'
+        f'font-size:{size}px;line-height:1.7;">{text}</p>'
     )
 
 
@@ -167,19 +205,18 @@ def tenant_welcome(business_name: str, slug: str) -> dict[str, str]:
       {_p("Tu cuenta está lista. Ya puedes comenzar a agregar productos y configurar tu tienda.")}
 
       <table role="presentation" class="soft" width="100%" cellpadding="0" cellspacing="0"
-             style="background:#f8f9fc;border:1px solid #e8eaf0;border-radius:10px;margin-bottom:24px;">
+             style="background:{_SOFT};border:1px solid {_LINE};border-radius:8px;margin-bottom:24px;">
         <tr>
           <td style="padding:18px 20px;">
-            <p style="margin:0 0 4px;font-family:{_FONT};color:#8a8fa8;font-size:11px;font-weight:700;
-                      text-transform:uppercase;letter-spacing:1px;">Tu URL pública</p>
-            <a href="{_esc(storefront_url)}" style="font-family:{_FONT};color:{_INDIGO};font-size:15px;
-               font-weight:600;text-decoration:none;word-break:break-all;">{_esc(storefront_url)}</a>
+            <p style="margin:0 0 4px;font-family:{_FONT};color:{_MUTED};font-size:11px;font-weight:600;
+                      text-transform:uppercase;letter-spacing:1.5px;">Tu URL pública</p>
+            {_link(storefront_url)}
           </td>
         </tr>
       </table>
 
-      <p style="margin:0 0 8px;font-family:{_FONT};color:{_NAVY};font-size:14px;font-weight:700;">Próximos pasos</p>
-      <ol style="margin:0 0 28px;padding-left:20px;font-family:{_FONT};color:#4b5563;font-size:14px;line-height:2;">
+      <p style="margin:0 0 8px;font-family:{_FONT};color:{_INK};font-size:14px;font-weight:600;">Próximos pasos</p>
+      <ol style="margin:0 0 28px;padding-left:20px;font-family:{_FONT};color:{_TEXT};font-size:14px;line-height:2;">
         <li>Agrega tus productos desde el dashboard</li>
         <li>Activa tu tienda pública cuando estés listo</li>
         <li>Comparte tu URL con tus clientes</li>
@@ -220,7 +257,6 @@ def consumer_welcome(name: str | None) -> dict[str, str]:
 def password_reset(name: str | None, link: str) -> dict[str, str]:
     """Sent when someone asks to reset their password. `link` carries the one-time token."""
     greeting = f"Hola, {_esc(name)}" if name else "Hola"
-    safe_link = _esc(link)
 
     body = f"""
       {_h1("Crea una contraseña nueva")}
@@ -231,19 +267,19 @@ def password_reset(name: str | None, link: str) -> dict[str, str]:
       {_button(link, "Crear contraseña nueva →")}
 
       <table role="presentation" class="soft" width="100%" cellpadding="0" cellspacing="0"
-             style="background:#f8f9fc;border:1px solid #e8eaf0;border-radius:10px;margin-top:28px;">
+             style="background:{_SOFT};border:1px solid {_LINE};border-radius:8px;margin-top:28px;">
         <tr>
           <td style="padding:14px 18px;">
-            <p style="margin:0 0 6px;font-family:{_FONT};color:#8a8fa8;font-size:12px;line-height:1.5;">
+            <p style="margin:0 0 6px;font-family:{_FONT};color:{_MUTED};font-size:12px;line-height:1.5;">
               Si el botón no abre, copia este enlace en tu navegador:
             </p>
-            <span style="font-family:{_FONT};word-break:break-all;color:{_INDIGO};font-size:12px;line-height:1.6;">{safe_link}</span>
+            {_link(link, size=12)}
           </td>
         </tr>
       </table>
 
       {_p("<strong>¿No lo pediste tú?</strong> Ignora este correo: tu contraseña no cambia y nadie puede entrar a tu cuenta con él.",
-          top=24, bottom=0, size=13, color="#6b7280")}
+          top=24, bottom=0, size=13, color=_MUTED)}
     """
     return {
         "subject": f"Restablece tu contraseña de {settings.BRAND_NAME}",
@@ -259,12 +295,12 @@ def password_changed(name: str | None) -> dict[str, str]:
     greeting = f"Hola, {_esc(name)}" if name else "Hola"
 
     body = f"""
-      {_callout("✓&nbsp; Contraseña actualizada", bg="#f0fdf4", border="#86efac", color="#15803d")}
+      {_callout("✓&nbsp; Contraseña actualizada", kind="ok")}
       {_h1("Tu contraseña cambió")}
       {_p(f"{greeting}. Tu contraseña de {_brand()} se acaba de cambiar y se cerraron las sesiones "
           "que tenías abiertas. Ya puedes iniciar sesión con la nueva.")}
       {_p("<strong>¿No fuiste tú?</strong> Pide otro enlace para recuperar tu cuenta y avisa a quien administra tu negocio.",
-          bottom=0, size=14, color="#991b1b")}
+          bottom=0, size=14, color=_STATUS["bad"][2])}
     """
     return {
         "subject": f"Tu contraseña de {settings.BRAND_NAME} cambió",
@@ -283,7 +319,7 @@ def low_stock_alert(product_name: str, current_stock: int, business_name: str) -
     unit_label = "unidad" if current_stock == 1 else "unidades"
 
     body = f"""
-      {_callout("⚠&nbsp; Stock bajo detectado", bg="#fffbeb", border="#fcd34d", color="#92400e")}
+      {_callout("⚠&nbsp; Stock bajo detectado", kind="warn")}
       {_h1(product)}
       {_p(f"El producto <strong>{product}</strong> de <strong>{business}</strong> "
           f"tiene solamente <strong>{current_stock} {unit_label}</strong> en existencia. "
@@ -305,19 +341,20 @@ def payment_confirmed(business_name: str, plan: str) -> dict[str, str]:
     plan_display = _esc(plan.capitalize())
     business = _esc(business_name)
     dashboard_url = f"{settings.APP_URL}/dashboard"
+    ok_bg, ok_border, ok_text = _STATUS["ok"]
 
     body = f"""
       {_h1("Pago confirmado")}
       {_p(f"El pago para el plan <strong>{plan_display}</strong> de <strong>{business}</strong> "
           "fue procesado exitosamente. Tu suscripción está activa.")}
 
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-             style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;margin-bottom:28px;">
+      <table role="presentation" class="okbox" width="100%" cellpadding="0" cellspacing="0"
+             style="background:{ok_bg};border:1px solid {ok_border};border-radius:8px;margin-bottom:28px;">
         <tr>
           <td style="padding:16px 20px;">
-            <p style="margin:0 0 4px;font-family:{_FONT};color:#15803d;font-size:11px;font-weight:700;
-                      text-transform:uppercase;letter-spacing:1px;">Plan activo</p>
-            <p style="margin:0;font-family:{_FONT};color:#166534;font-size:20px;font-weight:700;">{plan_display}</p>
+            <p style="margin:0 0 4px;font-family:{_FONT};color:{ok_text};font-size:11px;font-weight:600;
+                      text-transform:uppercase;letter-spacing:1.5px;">Plan activo</p>
+            <p style="margin:0;font-family:{_FONT};color:#166534;font-size:20px;font-weight:600;">{plan_display}</p>
           </td>
         </tr>
       </table>
@@ -340,7 +377,7 @@ def payment_failed(business_name: str, plan: str) -> dict[str, str]:
     billing_url = f"{settings.APP_URL}/dashboard/billing"
 
     body = f"""
-      {_callout("✕&nbsp; Pago fallido", bg="#fef2f2", border="#fca5a5", color="#991b1b")}
+      {_callout("✕&nbsp; Pago fallido", kind="bad")}
       {_h1("No pudimos procesar tu pago")}
       {_p(f"El cargo para el plan <strong>{plan_display}</strong> de <strong>{business}</strong> "
           "fue rechazado. Por favor actualiza tu método de pago para mantener tu cuenta activa.", bottom=28)}
