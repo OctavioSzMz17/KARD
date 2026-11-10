@@ -204,6 +204,13 @@ class TooManyChallengesError(Exception):
     """Demasiados QR pedidos desde la misma dirección en poco tiempo."""
 
 
+# ── Recuperar la contraseña ─────────────────────────────────────────────
+
+
+class InvalidResetTokenError(Exception):
+    """El enlace de recuperación no existe, caducó o ya se usó. No se distingue cuál, a propósito."""
+
+
 # ── Ticket compartido de la caja ────────────────────────────────────────
 
 

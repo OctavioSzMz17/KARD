@@ -28,13 +28,14 @@ Actualizado el 5 de noviembre de 2026.
 
 ## Para salir a producción
 
-- Las migraciones `010`, `011` y `012` **ya están en Neon**. El servidor de Render funciona con ellas aunque todavía no tenga el código nuevo.
+- Las migraciones `010` a `013` **ya están en Neon**. El servidor de Render funciona con ellas aunque todavía no tenga el código nuevo.
 - **Falta probar el camino con Redis contra el Redis de Render.** Solo se probó con un Redis simulado que respeta `WATCH/MULTI`; sin Redis el ticket vive en Postgres y eso sí se probó contra la base real. Conviene confirmar si el Redis de Render guarda datos en disco: la copia en Postgres cubre el caso de que no.
 
 ## Lo que falta para cerrar la primera versión (en este orden)
 
-1. **Recuperar contraseña.** El enlace "¿Olvidaste tu contraseña?" del login es un `href="#"` sin función y el servidor no tiene endpoint. La gerencia sí puede restablecerle la contraseña a un empleado, pero **el dueño no puede recuperar la suya**. Resend ya está integrado para otros correos.
-2. **Borrar los archivos viejos que reaparecieron** (probablemente por OneDrive) y agregar un **script que aplique las migraciones en orden** (001 a 012) para la base nueva.
+1. ~~**Recuperar contraseña.**~~ **Hecho (falta tu OK para subirlo).** Cada persona (dueño, gerencia, empleado y cliente de la tienda) la restablece desde su correo: `/recuperar` pide el enlace y `/restablecer` crea la contraseña nueva. El enlace dura 1 hora, sirve una vez, no revela si el correo existe y al cambiarla se cierran las sesiones abiertas. La gerencia conserva el restablecimiento desde *Equipo* para quien tenga un correo que no es real. La migración `013` ya está aplicada en Neon.
+   - **Para que llegue el correo en Render** hay que configurar `RESEND_API_KEY`, `EMAIL_FROM` y `APP_URL` (la dirección pública del cliente) y verificar un dominio de envío en Resend. Sin eso el servidor responde igual pero **no llega ningún correo**.
+2. **Borrar los archivos viejos que reaparecieron** (probablemente por OneDrive) y agregar un **script que aplique las migraciones en orden** (001 a 013) para la base nueva.
    - `Kard/logging/` y, en el cliente, `src/app/auth/login/`, `src/app/auth/register/` y `src/app/auth/auth-shared.scss`. Son copias exactas de versiones que ya borraron commits anteriores. `logging/` tapa a la librería estándar de Python (rompe `python -m pytest` y el contenedor); los del cliente rompen `ng build` y `ng test`. Se pueden borrar sin pérdida: están en el historial de git. Mientras estén, las pruebas se corren con `python -P` y apartándolos un momento.
 3. **Desplegar y probar con tus aparatos** (tablet, celular, laptop) con el servidor y el cliente nuevos en Render.
 4. **Documentación y presentación**: el HTML y las diapositivas no reflejan la caja, los equipos, el ticket compartido ni el Dashboard real.
@@ -52,5 +53,5 @@ Actualizado el 5 de noviembre de 2026.
 
 ## Base de datos nueva
 
-- **Decisión tuya:** vas a borrar la base actual y crear una nueva con las ramas adecuadas. Hay que volver a aplicar las migraciones **001 a 012** y correr los seeders.
+- **Decisión tuya:** vas a borrar la base actual y crear una nueva con las ramas adecuadas. Hay que volver a aplicar las migraciones **001 a 013** y correr los seeders.
 - Las pruebas de punta a punta `e2e_equipo.py` suponen una base limpia (códigos de empleado desde 0002 y sin equipos previos); con tus datos de prueba reales cinco de sus verificaciones fallan por eso.

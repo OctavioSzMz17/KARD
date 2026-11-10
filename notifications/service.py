@@ -35,6 +35,18 @@ class NotificationService:
         send_email(to=email, subject=tpl["subject"], html=tpl["html"])
 
     @staticmethod
+    def password_reset(*, email: str, name: str | None, link: str) -> None:
+        """Send the one-time link to choose a new password."""
+        tpl = templates.password_reset(name=name, link=link)
+        send_email(to=email, subject=tpl["subject"], html=tpl["html"])
+
+    @staticmethod
+    def password_changed(*, email: str, name: str | None) -> None:
+        """Tell the person their password was just changed (so they notice if it wasn't them)."""
+        tpl = templates.password_changed(name=name)
+        send_email(to=email, subject=tpl["subject"], html=tpl["html"])
+
+    @staticmethod
     def low_stock_alert(*, email: str, product_name: str, current_stock: int, business_name: str) -> None:
         """Notify a tenant's admin that a product is running low on stock."""
         tpl = templates.low_stock_alert(

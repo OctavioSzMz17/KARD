@@ -5,6 +5,8 @@ Each function returns a dict with "subject" and "html" keys.
 All styles are inlined — email clients strip external/class-based CSS.
 """
 
+import html
+
 from core.config import settings
 
 
@@ -123,6 +125,63 @@ def consumer_welcome(name: str | None) -> dict[str, str]:
     return {
         "subject": "Bienvenido a KARD",
         "html": _base("Bienvenido a KARD", body),
+    }
+
+
+def password_reset(name: str | None, link: str) -> dict[str, str]:
+    """Sent when someone asks to reset their password. `link` carries the one-time token."""
+    greeting = f"Hola, {html.escape(name)}" if name else "Hola"
+    safe_link = html.escape(link, quote=True)
+
+    body = f"""
+      <h1 style="margin:0 0 8px;color:#111827;font-size:22px;font-weight:700;">
+        Crea una contraseña nueva
+      </h1>
+      <p style="margin:0 0 24px;color:#4b5563;font-size:15px;line-height:1.6;">
+        {greeting}. Recibimos una solicitud para restablecer tu contraseña de KARD.
+        Presiona el botón para elegir una nueva. El enlace sirve <strong>una sola vez</strong>
+        y dura <strong>1 hora</strong>.
+      </p>
+
+      <a href="{safe_link}"
+         style="display:inline-block;background:#111827;color:#ffffff;font-size:14px;font-weight:600;
+                text-decoration:none;padding:12px 24px;border-radius:6px;">
+        Crear contraseña nueva →
+      </a>
+
+      <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+        Si el botón no abre, copia este enlace en tu navegador:<br>
+        <span style="word-break:break-all;color:#2563eb;">{safe_link}</span>
+      </p>
+      <p style="margin:16px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+        Si tú no lo pediste, ignora este correo: tu contraseña no cambia.
+      </p>
+    """
+    return {
+        "subject": "Restablece tu contraseña de KARD",
+        "html": _base("Restablece tu contraseña", body),
+    }
+
+
+def password_changed(name: str | None) -> dict[str, str]:
+    """Confirmation after a reset — lets the owner of the account notice an unwanted change."""
+    greeting = f"Hola, {html.escape(name)}" if name else "Hola"
+
+    body = f"""
+      <h1 style="margin:0 0 8px;color:#111827;font-size:22px;font-weight:700;">
+        Tu contraseña cambió
+      </h1>
+      <p style="margin:0 0 24px;color:#4b5563;font-size:15px;line-height:1.6;">
+        {greeting}. Tu contraseña de KARD se acaba de cambiar y se cerraron las sesiones
+        que tenías abiertas. Ya puedes iniciar sesión con la nueva.
+      </p>
+      <p style="margin:0;color:#991b1b;font-size:14px;line-height:1.6;">
+        ¿No fuiste tú? Pide otro enlace para recuperar tu cuenta y avisa a quien administra tu negocio.
+      </p>
+    """
+    return {
+        "subject": "Tu contraseña de KARD cambió",
+        "html": _base("Tu contraseña cambió", body),
     }
 
 

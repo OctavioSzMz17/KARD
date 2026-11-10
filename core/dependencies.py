@@ -33,6 +33,23 @@ _CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 
+def session_revoked(payload: dict, password_changed_at) -> bool:
+    """
+    ¿La sesión se abrió antes de que se restableciera la contraseña por correo?
+
+    Si alguien tenía robada una sesión, restablecer la contraseña se la quita. Se compara en segundos
+    enteros (el `iat` del token no tiene fracciones): una sesión abierta en el mismo segundo del
+    cambio sobrevive, que es justo la que abre quien acaba de poner su contraseña nueva.
+    Un token sin `iat` y una cuenta que nunca restableció no se tocan.
+    """
+    if password_changed_at is None:
+        return False
+    issued_at = payload.get("iat")
+    if issued_at is None:
+        return True        # sin fecha de emisión no se puede probar que es posterior al cambio
+    return int(issued_at) < int(password_changed_at.timestamp())
+
+
 class CurrentUser(BaseModel):
     """
     Authenticated request context, derived from a verified JWT and
@@ -124,7 +141,7 @@ def get_current_user(
         )
         .first()
     )
-    if db_user is None:
+    if db_user is None or session_revoked(payload, db_user.password_changed_at):
         raise _CREDENTIALS_EXCEPTION
 
     return CurrentUser(
@@ -214,7 +231,7 @@ def get_current_consumer(
         .filter(ConsumerModel.id == consumer_id, ConsumerModel.is_active.is_(True))
         .first()
     )
-    if db_consumer is None:
+    if db_consumer is None or session_revoked(payload, db_consumer.password_changed_at):
         raise _CREDENTIALS_EXCEPTION
 
     return CurrentConsumer(consumer_id=db_consumer.id, email=db_consumer.email)

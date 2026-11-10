@@ -39,6 +39,7 @@ from core.exceptions import (
     InvalidDiscountError,
     InvalidMetadataError,
     InvalidRecipeError,
+    InvalidResetTokenError,
     NoRegisterError,
     OrderNotFoundError,
     OrderStockConflictError,
@@ -67,6 +68,7 @@ from saasadmin.routes import router as saasadmin_router
 from devices.routes import router as devices_router
 from team.routes import router as team_router
 from tickets.routes import router as tickets_router
+from recovery.routes import router as recovery_router
 from settings.routes import router as settings_router
 from storefront.routes import router as storefront_router
 
@@ -352,6 +354,12 @@ async def idempotency_conflict_exception_handler(request: Request, exc: Idempote
     return _coded(409, "IDEMPOTENCY_CONFLICT", "Este ticket ya se cobró con otro contenido; revisa las ventas")
 
 
+@app.exception_handler(InvalidResetTokenError)
+async def invalid_reset_token_exception_handler(request: Request, exc: InvalidResetTokenError):
+    """Enlace de recuperación inexistente, caducado o ya usado → 400 (siempre el mismo mensaje)."""
+    return _coded(400, "INVALID_RESET_TOKEN", "El enlace ya no es válido; pide uno nuevo")
+
+
 @app.exception_handler(DuplicateProductCodeError)
 async def duplicate_product_code_exception_handler(request: Request, exc: DuplicateProductCodeError):
     """SKU o código de barras repetido entre los productos vigentes del negocio → 400."""
@@ -366,6 +374,7 @@ async def health_check():
 
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(recovery_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(saasadmin_router, prefix="/api/v1/saasadmin", tags=["saasadmin"])
 app.include_router(products_router, prefix="/api/v1/products", tags=["products"])
 app.include_router(images_router, prefix="/api/v1/products", tags=["images"])

@@ -103,6 +103,8 @@ class User(Base):
     full_name = Column(String(120), nullable=True)
     job_title = Column(String(30), nullable=True)
     employee_code = Column(String(12), nullable=True)
+    # Última vez que se restableció la contraseña por correo (migración 013): las sesiones previas dejan de valer.
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(
@@ -236,10 +238,32 @@ class Consumer(Base):
     hashed_password = Column(String(255), nullable=False)
     name = Column(String(100), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    # Ver User.password_changed_at (migración 013).
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Consumer id={self.id!r} email={self.email!r}>"
+
+
+class PasswordReset(Base):
+    """
+    Un enlace enviado por correo para restablecer la contraseña (migración 013).
+
+    Solo se guarda la huella (SHA-256) del enlace. Sirve una vez (`used_at`) y caduca (`expires_at`).
+    `account_kind` dice a qué tabla apunta `account_id`: 'user' (negocio) o 'consumer' (cliente).
+    """
+
+    __tablename__ = "password_resets"
+
+    id = Column(String(40), primary_key=True)
+    account_kind = Column(String(10), nullable=False)
+    account_id = Column(String(50), nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    requested_ip = Column(String(64), nullable=True)
 
 
 class ConsumerEvent(Base):

@@ -190,6 +190,19 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las 10 verificaciones pasan, más las 3 de `e2e_panel.py`. Dos mutaciones (volver a poner un mensaje de error y uno de sesión en inglés) hacen fallar la suite |
 | **Dependencias** | Ninguna |
 
+### PS-11 · Recuperar la contraseña por correo
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PS-11` |
+| **Elemento** | `PasswordRecoveryService` · `RecoveryRepository` · rutas `POST /auth/forgot-password` y `POST /auth/reset-password` · `session_revoked` de `core/dependencies.py` · correos de `notifications/` |
+| **Requisito cubierto** | Que cada persona (dueño, gerencia, empleado o cliente de la tienda) recupere su contraseña desde su correo sin molestar al resto del equipo, sin que eso abra una puerta: no revelar quién está registrado, enlace de un solo uso y con caducidad, sesiones anteriores cerradas |
+| **Prioridad** | Alta (seguridad de acceso) |
+| **Entradas** | Correos existentes, inexistentes, dados de baja, en mayúsculas y con espacios; los dos lados (negocio y cliente); varios enlaces seguidos; enlace vigente, usado, caducado, inventado, anulado por otro más nuevo y de una cuenta dada de baja; dos peticiones a la vez con el mismo enlace; contraseñas débiles y válidas; cuenta bloqueada por intentos fallidos; sesión abierta antes y después del cambio; nombre con HTML dentro; Redis caído |
+| **Resultado esperado** | Pedir el enlace contesta **lo mismo** (202 y el mismo texto) exista o no el correo, y el correo se manda después de responder; nunca viaja el enlace en la respuesta. El enlace es aleatorio (256 bits), en la base solo queda su huella SHA-256, va en el fragmento `#` (no en la consulta), dura 1 hora y sirve una vez; pedir otro anula el anterior y los de una cuenta no tocan los de otra. Tope de 3 solicitudes por hora por correo y 20 por dirección, contado aunque la cuenta no exista; si Redis falla se deja pasar. Un enlace inexistente, caducado, usado o de una cuenta de baja da el mismo error 400 `INVALID_RESET_TOKEN`; gastarlo es un `UPDATE` atómico, así que dos peticiones simultáneas no cambian dos veces. La contraseña nueva sigue la regla del registro. Al cambiar: se quita el bloqueo por intentos fallidos, las sesiones anteriores dejan de valer (negocio y cliente) y la sesión del mismo segundo sobrevive, y se avisa por correo; el correo escapa el nombre y el enlace. Negocio y cliente son mundos separados |
+| **Criterio de aprobación** | Las 66 verificaciones pasan. Contra la base real: `e2e_recuperar.py` (53 verificaciones, se revierte sola; empleado creado por el dueño y cliente de la tienda). Veintinueve mutaciones hacen fallar la suite o el recorrido contra la base real (comprobado sobre una copia): 23 en las pruebas unitarias (pedir otro sin anular el anterior, enlace sin gastar, cuenta de baja con enlace, enlace guardado en claro, 2 horas de vigencia, tope pasado por uno, sin tope por dirección, bloqueo sin quitar, contraseña sin guardar, correo sin normalizar, token en la consulta, correo sin mandar, aviso sin mandar, sesión del mismo segundo revocada, sesión vieja que sigue valiendo para usuario o cliente, token sin fecha de emisión, nombre o enlace sin escapar, contraseña débil aceptada, lado libre, entre otras) y 6 que solo ve la base real (el lado cliente busca en usuarios, gastar sin exigir "sin usar", gastar ignorando la caducidad, anular los enlaces de todas las cuentas, y no anotar la fecha del cambio de usuario o de cliente) |
+| **Dependencias** | Migración `013_recuperar_contrasena.sql` aplicada para la verificación contra base real. En producción: `RESEND_API_KEY`, `EMAIL_FROM` y `APP_URL` configuradas en Render y un dominio de envío verificado en Resend; sin ellas el servidor responde igual pero no llega el correo |
+
 ### PC-01 · Custodia de sesión y separación de identidades
 
 | Campo | Contenido |
@@ -450,6 +463,32 @@ Diseño, ejecución y reporte: equipo de desarrollo.
 | **Criterio de aprobación** | Las seis verificaciones pasan. Una mutación hace fallar la suite (comprobado sobre una copia): pedir las estadísticas sin el desfase de la zona horaria |
 | **Dependencias** | Ninguna |
 
+### PC-22 · Pantalla de recuperar la contraseña
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-22` |
+| **Elemento** | `PasswordRecoveryComponent` · `recovery-logic` · `AuthService.forgotPassword/resetPassword` · enlace "¿Olvidaste tu contraseña?" del inicio de sesión |
+| **Requisito cubierto** | Pedir el enlace y crear la contraseña nueva desde el celular o la computadora, sin delatar si un correo está registrado |
+| **Prioridad** | Alta |
+| **Entradas** | Correos válidos, inválidos y con espacios al final; los dos lados; direcciones con el token completo, cortado, con caracteres raros o ausente; contraseñas débiles, que no coinciden y válidas; respuestas 202, 200, 400 `INVALID_RESET_TOKEN`, 500 y sin conexión |
+| **Resultado esperado** | Sin correo válido no se manda nada; se recorta el espacio que dejan los teclados del celular. El lado sale de `?tipo=`, luego de lo último usado en el login, y por último cliente. Tras pedirlo siempre dice "Revisa tu correo". El token se lee del `#`; si falta o no tiene forma de token no hay formulario y se ofrece pedir otro. Una contraseña débil o que no coincide no viaja. Un enlace que el servidor rechaza manda a pedir otro en vez de dejar reintentar. Al terminar **no** inicia sesión sola. El token no se guarda en ningún almacenamiento. En el login el enlace lleva a `/recuperar` con el lado elegido y no aparece en el registro |
+| **Criterio de aprobación** | Las 27 verificaciones pasan. Quince mutaciones hacen fallar la suite (comprobado sobre una copia): token sin validar, token corto, mensajes, contraseñas que no coinciden o débiles, enlace rechazado que deja reintentar, espacios sin recortar, lado fijo, sin aviso de envío, sin token mostrando el formulario, lado olvidado, destino final equivocado, petición sin token o sin lado y enlace del login que pierde el lado. También se revisó la pantalla en el navegador (computadora y celular) con respuestas simuladas del servidor |
+| **Dependencias** | Ninguna |
+
+### PC-23 · Rutas de recuperar la contraseña
+
+| Campo | Contenido |
+|---|---|
+| **Identificador** | `KARD-TC-PC-23` |
+| **Elemento** | `app.routes.ts` |
+| **Requisito cubierto** | Que `/recuperar` y `/restablecer` abran la pantalla en su modo y no pidan sesión |
+| **Prioridad** | Media |
+| **Entradas** | La tabla de rutas |
+| **Resultado esperado** | `/recuperar` → modo "pedir el enlace"; `/restablecer` → modo "contraseña nueva"; ninguna lleva guardia; las dos cargan el mismo componente |
+| **Criterio de aprobación** | Las 4 verificaciones pasan. Una mutación (ruta `/restablecer` en el modo de pedir) hace fallar la suite |
+| **Dependencias** | Ninguna |
+
 ---
 
 ## 3. Procedimiento de Pruebas (Test Procedure)
@@ -490,6 +529,7 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PS-08 · Ticket compartido entre la caja y el celular | 92 | ✅ Aprobado | — |
 | PS-09 · Quién cobró, caja, corte por cajero y Dashboard real | 61 | ✅ Aprobado | — |
 | PS-10 · Mensajes en español | 10 | ✅ Aprobado | — |
+| PS-11 · Recuperar la contraseña por correo | 66 | ✅ Aprobado | — |
 | PC-01 · AuthService | 7 | ✅ Aprobado | — |
 | PC-02 · AuthPageComponent | 20 | ✅ Aprobado | — |
 | PC-03 · Guards de ruta | 6 | ✅ Aprobado | — |
@@ -510,7 +550,9 @@ reproducibles en cualquier máquina y aptos para integración continua.
 | PC-19 · Dashboard con ventas reales | 17 | ✅ Aprobado | — |
 | PC-20 · Quién cobró y desde qué caja | 17 | ✅ Aprobado | — |
 | PC-21 · Servicio de ventas | 6 | ✅ Aprobado | — |
-| **TOTAL** | **824** | **30 de 30 aprobados** | |
+| PC-22 · Pantalla de recuperar la contraseña | 27 | ✅ Aprobado | — |
+| PC-23 · Rutas de recuperar la contraseña | 4 | ✅ Aprobado | — |
+| **TOTAL** | **921** | **33 de 33 aprobados** | |
 
 ### 4.2 Salida del servidor
 ```
@@ -571,6 +613,8 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PS-08, concurrencia real con cuatro conexiones (crea y borra una caja temporal) | `Kard/tests/integracion/e2e_ticket_concurrencia.py` |
 | PS-09 y PS-10 | `Kard/tests/test_panel_y_cajero.py` |
 | PS-09 y PS-10 de punta a punta contra la base real (se revierte sola) | `Kard/tests/integracion/e2e_panel.py` |
+| PS-11 | `Kard/tests/test_recuperar_contrasena.py` |
+| PS-11 de punta a punta contra la base real (se revierte sola) | `Kard/tests/integracion/e2e_recuperar.py` |
 | Dobles y fixtures | `Kard/tests/conftest.py` |
 | PC-01 | `Kard-client/src/app/core/services/auth.service.spec.ts` |
 | PC-02 | `Kard-client/src/app/auth/auth-page/auth-page.component.spec.ts` |
@@ -591,3 +635,5 @@ esa brecha; queda propuesta para la siguiente iteración.
 | PC-19 | `Kard-client/src/app/dashboard/home/home.component.spec.ts` |
 | PC-20 | `Kard-client/src/app/dashboard/pos/receipt.component.spec.ts` |
 | PC-21 | `Kard-client/src/app/core/services/sales.service.spec.ts` |
+| PC-22 | `Kard-client/src/app/auth/password-recovery/password-recovery.component.spec.ts` (más `auth.service.spec.ts` y `auth-page.component.spec.ts`) |
+| PC-23 | `Kard-client/src/app/app.routes.spec.ts` |

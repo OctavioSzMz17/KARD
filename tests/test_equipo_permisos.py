@@ -468,6 +468,7 @@ def _routers():
     from images.routes import router as images
     from orders.routes import router as orders
     from products.routes import router as products
+    from recovery.routes import router as recovery
     from recipes.routes import router as recipes
     from saasadmin.routes import router as saasadmin
     from settings.routes import router as settings
@@ -481,7 +482,7 @@ def _routers():
         ("/api/v1/consumers", consumers), ("/api/v1/billing", billing), ("/api/v1/explore", explore),
         ("/api/v1/cart", cart), ("/api/v1/orders", orders), ("/api/v1/cash", cash),
         ("/api/v1/settings", settings), ("/api/v1/team", team), ("/api/v1/device-auth", devices),
-        ("/api/v1/tickets", tickets),
+        ("/api/v1/tickets", tickets), ("/api/v1/auth", recovery),
     ]
 
 
