@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     REDIS_URL: str
 
     # Application
+    # El nombre del producto tal como lo ven las personas (correos, título de la API).
+    # Si la marca cambia, se cambia aquí y nada más.
+    BRAND_NAME: str = "KARD"
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
@@ -52,7 +55,8 @@ class Settings(BaseSettings):
     # Resend — transactional email (leave empty to disable email sending)
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = ""
-    EMAIL_FROM_NAME: str = "KARD"
+    # Nombre que se ve como remitente. Vacío = usa BRAND_NAME.
+    EMAIL_FROM_NAME: str = ""
     APP_URL: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(
@@ -61,6 +65,11 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @property
+    def email_sender_name(self) -> str:
+        """Remitente visible: el nombre propio si se configuró, si no el de la marca."""
+        return self.EMAIL_FROM_NAME or self.BRAND_NAME
 
     @property
     def stripe_price_by_plan(self) -> dict[str, str]:

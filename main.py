@@ -74,7 +74,7 @@ from storefront.routes import router as storefront_router
 
 setup_logging()
 
-app = FastAPI(title="KARD", version="1.0.0")
+app = FastAPI(title=settings.BRAND_NAME, version="1.0.0")
 
 # CORS — only the configured frontend origin(s), credentials allowed
 # (Rules.md section 2.6)

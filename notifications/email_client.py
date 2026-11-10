@@ -8,7 +8,7 @@ Email never blocks the main request path.
 Configuration (all from .env via core/config.py):
   RESEND_API_KEY  — required for sending; leave empty to disable
   EMAIL_FROM      — sender address (e.g. noreply@yourdomain.com)
-  EMAIL_FROM_NAME — display name shown in the inbox (default: KARD)
+  EMAIL_FROM_NAME — display name shown in the inbox (default: BRAND_NAME)
 """
 
 import logging
@@ -39,8 +39,8 @@ def send_email(*, to: str, subject: str, html: str) -> bool:
         resend.api_key = settings.RESEND_API_KEY
 
         sender = (
-            f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>"
-            if settings.EMAIL_FROM_NAME
+            f"{settings.email_sender_name} <{settings.EMAIL_FROM}>"
+            if settings.email_sender_name
             else settings.EMAIL_FROM
         )
 

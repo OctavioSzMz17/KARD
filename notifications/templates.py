@@ -1,5 +1,5 @@
 """
-HTML email templates for KARD transactional emails.
+HTML email templates for transactional emails (the name comes from BRAND_NAME).
 
 Each function returns a dict with "subject" and "html" keys.
 All styles are inlined — email clients strip external/class-based CSS. The few
@@ -10,12 +10,23 @@ Colors follow the app: navy #14183a, indigo #4a5bcf.
 """
 
 import html
+from urllib.parse import urlparse
 
 from core.config import settings
 
 _NAVY = "#14183a"
 _INDIGO = "#4a5bcf"
 _RED = "#dc2626"
+
+def _brand() -> str:
+    """The product name, safe to drop into HTML. Comes from BRAND_NAME in the .env."""
+    return html.escape(settings.BRAND_NAME, quote=True)
+
+
+def _domain() -> str:
+    """The public address people recognise (host of APP_URL), shown in the footer."""
+    return urlparse(settings.APP_URL).netloc or settings.APP_URL
+
 
 _FONT = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
@@ -96,7 +107,7 @@ def _base(title: str, body: str, preheader: str = "") -> str:
           <!-- Header -->
           <tr>
             <td class="px" style="background:{_NAVY};border-radius:14px 14px 0 0;padding:26px 36px;">
-              <span style="font-family:{_FONT};color:#ffffff;font-size:22px;font-weight:800;letter-spacing:4px;">KARD</span>
+              <span style="font-family:{_FONT};color:#ffffff;font-size:22px;font-weight:800;letter-spacing:4px;">{_brand()}</span>
             </td>
           </tr>
           <tr>
@@ -115,10 +126,10 @@ def _base(title: str, body: str, preheader: str = "") -> str:
           <tr>
             <td class="foot px" style="background:#f8f9fc;border:1px solid #e8eaf0;border-top:none;border-radius:0 0 14px 14px;padding:20px 36px;">
               <p style="margin:0 0 4px;font-family:{_FONT};color:#8a8fa8;font-size:12px;line-height:1.6;">
-                Este mensaje fue enviado por KARD. Si no esperabas este correo, puedes ignorarlo.
+                Este mensaje fue enviado por {_brand()}. Si no esperabas este correo, puedes ignorarlo.
               </p>
               <p style="margin:0;font-family:{_FONT};color:#b0b4c8;font-size:12px;line-height:1.6;">
-                kard.znvx.dev
+                {_esc(_domain())}
               </p>
             </td>
           </tr>
@@ -152,7 +163,7 @@ def tenant_welcome(business_name: str, slug: str) -> dict[str, str]:
     storefront_url = f"{settings.APP_URL}/s/{slug}"
 
     body = f"""
-      {_h1(f"¡Bienvenido a KARD, {business}!")}
+      {_h1(f"¡Bienvenido a {_brand()}, {business}!")}
       {_p("Tu cuenta está lista. Ya puedes comenzar a agregar productos y configurar tu tienda.")}
 
       <table role="presentation" class="soft" width="100%" cellpadding="0" cellspacing="0"
@@ -177,7 +188,7 @@ def tenant_welcome(business_name: str, slug: str) -> dict[str, str]:
       {_button(dashboard_url, "Ir al dashboard →")}
     """
     return {
-        "subject": f"¡Bienvenido a KARD, {business_name}!",
+        "subject": f"¡Bienvenido a {settings.BRAND_NAME}, {business_name}!",
         "html": _base(
             f"Bienvenido, {business_name}", body,
             preheader="Tu cuenta está lista. Agrega tus productos y comparte tu tienda.",
@@ -187,21 +198,21 @@ def tenant_welcome(business_name: str, slug: str) -> dict[str, str]:
 
 def consumer_welcome(name: str | None) -> dict[str, str]:
     """Sent to a new consumer after registration."""
-    greeting = f"¡Hola, {_esc(name)}!" if name else "¡Bienvenido a KARD!"
+    greeting = f"¡Hola, {_esc(name)}!" if name else f"¡Bienvenido a {_brand()}!"
     explore_url = settings.APP_URL
 
     body = f"""
       {_h1(greeting)}
-      {_p("Tu cuenta está lista. Con ella puedes acceder a cualquier tienda en KARD con un solo login, sin crear una cuenta nueva por cada negocio.")}
+      {_p(f"Tu cuenta está lista. Con ella puedes acceder a cualquier tienda en {_brand()} con un solo login, sin crear una cuenta nueva por cada negocio.")}
       {_p("Cada vez que visites una tienda nueva, tu historial de compras y preferencias te esperan automáticamente.", bottom=28, size=14)}
 
       {_button(explore_url, "Explorar tiendas →")}
     """
     return {
-        "subject": "Bienvenido a KARD",
+        "subject": f"Bienvenido a {settings.BRAND_NAME}",
         "html": _base(
-            "Bienvenido a KARD", body,
-            preheader="Una sola cuenta para todas las tiendas de KARD.",
+            f"Bienvenido a {settings.BRAND_NAME}", body,
+            preheader=f"Una sola cuenta para todas las tiendas de {settings.BRAND_NAME}.",
         ),
     }
 
@@ -213,7 +224,7 @@ def password_reset(name: str | None, link: str) -> dict[str, str]:
 
     body = f"""
       {_h1("Crea una contraseña nueva")}
-      {_p(f'{greeting}. Recibimos una solicitud para restablecer tu contraseña de KARD. '
+      {_p(f'{greeting}. Recibimos una solicitud para restablecer tu contraseña de {_brand()}. '
           'Presiona el botón para elegir una nueva. El enlace sirve <strong>una sola vez</strong> '
           'y dura <strong>1 hora</strong>.', bottom=28)}
 
@@ -235,7 +246,7 @@ def password_reset(name: str | None, link: str) -> dict[str, str]:
           top=24, bottom=0, size=13, color="#6b7280")}
     """
     return {
-        "subject": "Restablece tu contraseña de KARD",
+        "subject": f"Restablece tu contraseña de {settings.BRAND_NAME}",
         "html": _base(
             "Restablece tu contraseña", body,
             preheader="Usa este enlace para elegir una contraseña nueva. Dura 1 hora.",
@@ -250,13 +261,13 @@ def password_changed(name: str | None) -> dict[str, str]:
     body = f"""
       {_callout("✓&nbsp; Contraseña actualizada", bg="#f0fdf4", border="#86efac", color="#15803d")}
       {_h1("Tu contraseña cambió")}
-      {_p(f"{greeting}. Tu contraseña de KARD se acaba de cambiar y se cerraron las sesiones "
+      {_p(f"{greeting}. Tu contraseña de {_brand()} se acaba de cambiar y se cerraron las sesiones "
           "que tenías abiertas. Ya puedes iniciar sesión con la nueva.")}
       {_p("<strong>¿No fuiste tú?</strong> Pide otro enlace para recuperar tu cuenta y avisa a quien administra tu negocio.",
           bottom=0, size=14, color="#991b1b")}
     """
     return {
-        "subject": "Tu contraseña de KARD cambió",
+        "subject": f"Tu contraseña de {settings.BRAND_NAME} cambió",
         "html": _base(
             "Tu contraseña cambió", body,
             preheader="Se cerraron tus sesiones abiertas. Si no fuiste tú, recupera tu cuenta.",
