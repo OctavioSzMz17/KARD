@@ -1,14 +1,16 @@
 """
-Cancelar un pedido devuelve al inventario lo que se descontó al venderlo.
+Cancelar un pedido deja en una cola lo que hay que devolver al inventario.
 
-Hasta ahora cancelar solo cambiaba la etiqueta: el pedido dejaba de contar como venta, pero los
-insumos ya gastados no volvían, y el inventario se iba quedando corto con cada cancelación.
+Cancelar NO toca el inventario en la petición: marca el pedido y deja UN trabajo (`StockReturn`)
+con las líneas a devolver, en la misma transacción. Un proceso aparte lo aplica
+(`tests/test_cola_devoluciones.py`). Así cancelar no espera a otros pedidos que comparten insumos.
 
-Reglas que se prueban:
-  · cancelar un pedido en marcha devuelve los insumos de la receta (y el producto, si lleva stock);
-  · se devuelve UNA sola vez, aunque se cancele de nuevo o por el otro eje (pago / entrega);
+Reglas que se prueban aquí:
+  · cancelar un pedido en marcha deja un trabajo con los insumos de la receta (y el producto, si
+    lleva stock), y no mueve el inventario;
+  · deja UN solo trabajo, aunque se cancele de nuevo o por el otro eje (pago / entrega);
   · un pedido cancelado no se reabre (devolver y volver a descontar podría no alcanzar);
-  · mover un pedido sin cancelarlo no toca el inventario.
+  · mover un pedido sin cancelarlo no deja ningún trabajo.
 """
 
 import asyncio
@@ -80,8 +82,17 @@ class FakeDb:
         pass
 
     @property
-    def movimientos(self):
-        return [o for o in self.agregados if o.__class__.__name__ == "InventoryTransaction"]
+    def trabajos(self):
+        return [o for o in self.agregados if o.__class__.__name__ == "StockReturn"]
+
+    @property
+    def devolver(self):
+        """Lo que la cola devolverá: id del producto → cantidad, sumando todos los trabajos."""
+        total = {}
+        for trabajo in self.trabajos:
+            for linea in trabajo.lines:
+                total[linea["product_id"]] = total.get(linea["product_id"], 0) + linea["quantity"]
+        return total
 
 
 def producto(pid, *, tipo, stock, nombre="Producto"):
@@ -122,8 +133,8 @@ def servicio(db, orden):
 # ═══════════════════════════════════════════════════════════════════
 
 
-class TestCancelarDevuelveElInventario:
-    def test_un_platillo_devuelve_los_insumos_de_su_receta_y_no_toca_su_stock(self):
+class TestCancelarDejaLaDevolucionEnLaCola:
+    def test_un_platillo_deja_los_insumos_de_su_receta_y_no_toca_el_inventario(self):
         chilaquiles = producto("p_chil", tipo="final", stock=0, nombre="Chilaquiles")
         maiz = producto("i_maiz", tipo="insumo", stock=4)
         pollo = producto("i_pollo", tipo="insumo", stock=10)
@@ -135,63 +146,61 @@ class TestCancelarDevuelveElInventario:
 
         servicio(db, orden).update_sale_status("t_1", "ord_1", "canceled", "canceled", user_id="u_9")
 
-        assert maiz.inventory_count == 4 + 2 * 3         # 6 más
-        assert pollo.inventory_count == 10 + 1 * 3       # 3 más
-        assert chilaquiles.inventory_count == 0          # un platillo no lleva existencias
-        assert db.commits == 1
+        assert db.devolver == {"i_maiz": 2 * 3, "i_pollo": 1 * 3}    # un platillo no lleva existencias
+        # Cancelar no mueve el inventario: lo hace la cola, fuera de la petición.
+        assert (maiz.inventory_count, pollo.inventory_count, chilaquiles.inventory_count) == (4, 10, 0)
+        assert db.commits == 1                                       # pedido y trabajo, una transacción
 
-    def test_cada_devolucion_deja_su_movimiento_a_nombre_de_quien_cancela(self):
-        maiz = producto("i_maiz", tipo="insumo", stock=4)
+    def test_el_trabajo_queda_a_nombre_del_pedido_y_de_quien_cancela(self):
         db = FakeDb(
             business_type="restaurant",
-            productos=[producto("p_chil", tipo="final", stock=0, nombre="Chilaquiles"), maiz],
+            productos=[producto("p_chil", tipo="final", stock=0, nombre="Chilaquiles"), producto("i_maiz", tipo="insumo", stock=4)],
             recetas={"p_chil": [receta("i_maiz", 2)]},
         )
         servicio(db, pedido(("p_chil", 3))).update_sale_status("t_1", "ord_1", "canceled", user_id="u_9")
 
-        [mov] = db.movimientos
-        assert (mov.product_id, mov.action, mov.quantity_change) == ("i_maiz", "restock", 6)
-        assert mov.quantity_before + mov.quantity_change == mov.quantity_after      # la bitácora cuadra
-        assert mov.user_id == "u_9"
-        assert "ord_1" in mov.notes and "Chilaquiles" in mov.notes
+        [trabajo] = db.trabajos
+        assert (trabajo.order_id, trabajo.tenant_id, trabajo.user_id, trabajo.status) == ("ord_1", "t_1", "u_9", "pending")
+        [linea] = trabajo.lines
+        assert (linea["product_id"], linea["quantity"]) == ("i_maiz", 6)
+        assert "ord_1" in linea["note"] and "Chilaquiles" in linea["note"]
 
-    def test_varias_partidas_devuelven_cada_una_lo_suyo(self):
-        maiz = producto("i_maiz", tipo="insumo", stock=0)
-        queso = producto("i_queso", tipo="insumo", stock=1)
+    def test_varias_partidas_dejan_cada_una_lo_suyo(self):
         db = FakeDb(
             business_type="restaurant",
             productos=[
-                producto("p_chil", tipo="final", stock=0), producto("p_sopa", tipo="final", stock=0), maiz, queso,
+                producto("p_chil", tipo="final", stock=0), producto("p_sopa", tipo="final", stock=0),
+                producto("i_maiz", tipo="insumo", stock=0), producto("i_queso", tipo="insumo", stock=1),
             ],
             recetas={"p_chil": [receta("i_maiz", 2)], "p_sopa": [receta("i_maiz", 1), receta("i_queso", 3)]},
         )
         servicio(db, pedido(("p_chil", 2), ("p_sopa", 2))).update_sale_status("t_1", "ord_1", "canceled")
 
-        assert maiz.inventory_count == 2 * 2 + 1 * 2     # 6
-        assert queso.inventory_count == 1 + 3 * 2        # 7
+        assert db.devolver == {"i_maiz": 2 * 2 + 1 * 2, "i_queso": 3 * 2}
+        assert len(db.trabajos) == 1                                 # un pedido, un trabajo
 
-    def test_un_platillo_sin_receta_no_devuelve_nada(self):
+    def test_un_platillo_sin_receta_no_deja_trabajo_pero_igual_se_cancela(self):
         db = FakeDb(business_type="restaurant", productos=[producto("p_esq", tipo="final", stock=0)])
-        servicio(db, pedido(("p_esq", 2))).update_sale_status("t_1", "ord_1", "canceled")
-        assert db.movimientos == []
-        assert db.commits == 1                           # igual se cancela
+        orden = pedido(("p_esq", 2))
+        servicio(db, orden).update_sale_status("t_1", "ord_1", "canceled")
+        assert db.trabajos == [] and db.commits == 1
+        assert orden.status == "canceled"
 
     def test_en_una_optica_se_devuelve_el_stock_del_propio_producto(self):
         lente = producto("p_len", tipo="final", stock=3, nombre="Lente")
         db = FakeDb(business_type="optician", productos=[lente])
         servicio(db, pedido(("p_len", 2))).update_sale_status("t_1", "ord_1", "canceled")
 
-        assert lente.inventory_count == 5
-        assert [m.product_id for m in db.movimientos] == ["p_len"]
+        assert db.devolver == {"p_len": 2}
+        assert lente.inventory_count == 3
 
-    def test_cancelar_solo_la_entrega_tambien_devuelve(self):
-        maiz = producto("i_maiz", tipo="insumo", stock=0)
+    def test_cancelar_solo_la_entrega_tambien_deja_la_devolucion(self):
         db = FakeDb(
-            business_type="restaurant", productos=[producto("p_chil", tipo="final", stock=0), maiz],
+            business_type="restaurant", productos=[producto("p_chil", tipo="final", stock=0), producto("i_maiz", tipo="insumo", stock=0)],
             recetas={"p_chil": [receta("i_maiz", 2)]},
         )
         servicio(db, pedido(("p_chil", 1))).update_sale_status("t_1", "ord_1", None, "canceled")
-        assert maiz.inventory_count == 2
+        assert db.devolver == {"i_maiz": 2}
 
     def test_un_producto_dado_de_baja_despues_tambien_recupera_lo_suyo(self):
         # El servicio no filtra por is_deleted: el insumo sigue ahí aunque ya no se venda.
@@ -202,42 +211,42 @@ class TestCancelarDevuelveElInventario:
             recetas={"p_chil": [receta("i_maiz", 2)]},
         )
         servicio(db, pedido(("p_chil", 1))).update_sale_status("t_1", "ord_1", "canceled")
-        assert maiz.inventory_count == 2
+        assert db.devolver == {"i_maiz": 2}
 
     def test_un_producto_que_ya_no_existe_no_rompe_la_cancelacion(self):
         db = FakeDb(business_type="restaurant", productos=[])
         r = servicio(db, pedido(("p_fantasma", 1))).update_sale_status("t_1", "ord_1", "canceled")
-        assert r.status == "canceled" and db.commits == 1
+        assert r.status == "canceled" and db.commits == 1 and db.trabajos == []
 
 
 class TestSoloUnaVez:
     def _cancelado(self, **estado):
-        maiz = producto("i_maiz", tipo="insumo", stock=10)
         db = FakeDb(
-            business_type="restaurant", productos=[producto("p_chil", tipo="final", stock=0), maiz],
+            business_type="restaurant",
+            productos=[producto("p_chil", tipo="final", stock=0), producto("i_maiz", tipo="insumo", stock=10)],
             recetas={"p_chil": [receta("i_maiz", 2)]},
         )
-        return db, maiz, pedido(("p_chil", 1), **estado)
+        return db, pedido(("p_chil", 1), **estado)
 
-    def test_cancelar_dos_veces_devuelve_una_sola(self):
-        db, maiz, orden = self._cancelado()
+    def test_cancelar_dos_veces_deja_un_solo_trabajo(self):
+        db, orden = self._cancelado()
         svc = servicio(db, orden)
         svc.update_sale_status("t_1", "ord_1", "canceled", "canceled")
         svc.update_sale_status("t_1", "ord_1", "canceled", "canceled")
-        assert maiz.inventory_count == 12                # 10 + 2, no 14
+        assert len(db.trabajos) == 1 and db.devolver == {"i_maiz": 2}      # 2, no 4
 
-    def test_cancelar_primero_el_pago_y_luego_la_entrega_devuelve_una_sola(self):
-        db, maiz, orden = self._cancelado()
+    def test_cancelar_primero_el_pago_y_luego_la_entrega_deja_un_solo_trabajo(self):
+        db, orden = self._cancelado()
         svc = servicio(db, orden)
         svc.update_sale_status("t_1", "ord_1", "canceled", None)
         svc.update_sale_status("t_1", "ord_1", None, "canceled")
-        assert maiz.inventory_count == 12
+        assert len(db.trabajos) == 1
 
-    def test_un_pedido_cancelado_antes_de_esta_regla_no_devuelve_nada_ahora(self):
+    def test_un_pedido_cancelado_antes_de_esta_regla_no_deja_nada_ahora(self):
         """Ya venía cancelado: no hay transición, así que no se inventa una devolución."""
-        db, maiz, orden = self._cancelado(status="canceled", entrega="canceled")
+        db, orden = self._cancelado(status="canceled", entrega="canceled")
         servicio(db, orden).update_sale_status("t_1", "ord_1", "canceled", "canceled")
-        assert maiz.inventory_count == 10 and db.movimientos == []
+        assert db.trabajos == []
 
 
 class TestUnCanceladoNoSeReabre:
@@ -259,7 +268,7 @@ class TestUnCanceladoNoSeReabre:
             servicio(db, orden).update_sale_status("t_1", "ord_1", **cambio)
 
         assert (orden.status, orden.fulfillment_status) == ("canceled", "canceled")
-        assert maiz.inventory_count == 10 and db.commits == 0
+        assert maiz.inventory_count == 10 and db.commits == 0 and db.trabajos == []
 
     def test_con_los_dos_ejes_cancelados_tampoco_se_cambia_solo_uno(self):
         """Marcar "pagado" dejaría la entrega cancelada: el tablero lo vería cancelado y el reporte, vendido."""
@@ -293,13 +302,13 @@ class TestUnCanceladoNoSeReabre:
         assert "no se puede reabrir" in cuerpo["error"]
 
 
-class TestMoverSinCancelarNoTocaElInventario:
+class TestMoverSinCancelarNoDejaTrabajo:
     @pytest.mark.parametrize("cambio", [
         {"new_fulfillment_status": "ready"},
         {"new_fulfillment_status": "completed"},
         {"new_status": "paid"},
     ])
-    def test_los_demas_cambios_dejan_el_inventario_igual(self, cambio):
+    def test_los_demas_cambios_no_dejan_devolucion(self, cambio):
         maiz = producto("i_maiz", tipo="insumo", stock=10)
         db = FakeDb(
             business_type="restaurant", productos=[producto("p_chil", tipo="final", stock=0), maiz],
@@ -307,7 +316,7 @@ class TestMoverSinCancelarNoTocaElInventario:
         )
         servicio(db, pedido(("p_chil", 1))).update_sale_status("t_1", "ord_1", **cambio)
 
-        assert maiz.inventory_count == 10 and db.movimientos == []
+        assert maiz.inventory_count == 10 and db.trabajos == []
         assert db.commits == 1
 
     def test_un_pedido_de_otro_negocio_da_404(self):

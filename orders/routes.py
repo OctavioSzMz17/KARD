@@ -16,7 +16,7 @@ Negocio (JWT de usuario):
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from core import permissions as P
@@ -33,6 +33,8 @@ from db.models import Device
 from devices.dependencies import get_optional_device
 from orders.cashier import short_name
 from orders.idempotency import is_valid_key
+from orders.queue import is_canceled
+from orders.stock_returns import process_pending
 from orders.models import (
     CreateOrderRequest,
     CreatePosSaleRequest,
@@ -225,6 +227,7 @@ def business_orders_queue(
 def update_sale_status(
     order_id: str,
     payload: UpdateSaleStatusRequest,
+    background: BackgroundTasks,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SaleResponse:
@@ -234,12 +237,19 @@ def update_sale_status(
     El pago y la entrega se mueven por separado — o juntos en una llamada —
     porque son ejes independientes: cobrar una mesa no la sirve.
 
-    Cancelar devuelve el inventario (queda a nombre de quien cancela); un cancelado no se reabre (409).
+    Cancelar es instantáneo: deja la devolución del inventario en una cola (una por pedido, a nombre
+    de quien cancela) y responde. El inventario sube segundos después, ya fuera de la petición, para
+    que dos cancelaciones nunca se esperen entre sí. Un cancelado no se reabre (409).
     """
-    return OrderService(db).update_sale_status(
+    sale = OrderService(db).update_sale_status(
         current_user.tenant_id, order_id, payload.status, payload.fulfillment_status,
         user_id=current_user.user_id,
     )
+    if is_canceled(sale.status, sale.fulfillment_status):
+        # Después de responder. Repetir una cancelación también la dispara, y no estorba: sirve de
+        # reintento si algo quedó pendiente.
+        background.add_task(process_pending)
+    return sale
 
 
 @router.get(

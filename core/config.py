@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     DEVICE_TTL_HOURS: int = 14
     CHALLENGE_TTL_SECONDS: int = 150
 
+    # Cola de devoluciones de inventario (cancelar un pedido): cada cuántos segundos revisa si quedó
+    # algo pendiente (reintentos y trabajos que un reinicio dejó a medias). 0 = no revisa.
+    STOCK_RETURN_SWEEP_SECONDS: int = 30
+
     # Redis (token blacklist, login-attempt counters)
     REDIS_URL: str
 

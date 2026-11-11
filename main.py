@@ -5,6 +5,10 @@ Bootstraps the app, logging, CORS, global exception handlers, the
 `/health` endpoint, and feature routers.
 """
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -75,7 +79,39 @@ from storefront.routes import router as storefront_router
 
 setup_logging()
 
-app = FastAPI(title=settings.BRAND_NAME, version="1.0.0")
+
+async def _sweep_stock_returns(interval: int) -> None:
+    """
+    Cada `interval` segundos aplica las devoluciones de inventario que quedaron pendientes.
+
+    La cancelación ya dispara una pasada al responder; esta cubre lo que esa no alcanza: los
+    reintentos de un trabajo que falló y lo que un reinicio del servidor dejó a medias. Nunca se
+    cae: un error se anota y la siguiente pasada lo vuelve a intentar.
+    """
+    from orders.stock_returns import process_pending
+
+    log = logging.getLogger("kard.stock_returns")
+    while True:
+        try:
+            await asyncio.to_thread(process_pending)
+        except Exception:
+            log.warning("Falló la revisión de devoluciones pendientes", exc_info=True)
+        await asyncio.sleep(interval)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task = None
+    if settings.STOCK_RETURN_SWEEP_SECONDS > 0:
+        task = asyncio.create_task(_sweep_stock_returns(settings.STOCK_RETURN_SWEEP_SECONDS))
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+
+
+app = FastAPI(title=settings.BRAND_NAME, version="1.0.0", lifespan=lifespan)
 
 # CORS — only the configured frontend origin(s), credentials allowed
 # (Rules.md section 2.6)

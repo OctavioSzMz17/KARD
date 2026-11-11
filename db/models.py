@@ -453,6 +453,33 @@ class ProductRecipe(Base):
         )
 
 
+class StockReturn(Base):
+    """
+    Devolución de inventario pendiente por un pedido cancelado (migración 014).
+
+    Cancelar solo deja este trabajo; un proceso aparte lo aplica (`orders/stock_returns.py`).
+    `order_id` es único: es la llave de idempotencia, un pedido devuelve una sola vez.
+    `lines` fija qué se devuelve al cancelar: [{"product_id", "quantity", "note"}].
+    """
+
+    __tablename__ = "stock_returns"
+
+    id = Column(String(40), primary_key=True)
+    tenant_id = Column(String(50), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False)
+    order_id = Column(String(50), ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, unique=True)
+    lines = Column(JSONB, nullable=False, default=list)
+    status = Column(String(10), nullable=False, default="pending")   # pending | done | failed
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    user_id = Column(String(50), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    next_attempt_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<StockReturn id={self.id!r} order={self.order_id!r} status={self.status!r}>"
+
+
 class StripeEvent(Base):
     """
     Evento de Stripe ya aplicado.

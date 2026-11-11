@@ -64,6 +64,7 @@ from orders.models import (
 from orders.money import ZERO, change_for, discount_amount, order_total, to_money
 from orders.stats import average_ticket, fill_days, local_today, window_start_utc
 from orders.queue import is_canceled, queue_state
+from orders.stock_returns import enqueue as enqueue_stock_return
 from orders.repository import ACTIVE_FULFILLMENT, OrderRepository
 from products.stock_policy import tracks_stock
 from storefront.repository import StorefrontRepository
@@ -625,44 +626,32 @@ class OrderService:
             page_size=page_size,
         )
 
-    def _return_stock(self, order: Order, user_id: str | None) -> None:
+    def _plan_return(self, order: Order) -> list[dict]:
         """
-        Devuelve al inventario lo que descontó la venta de este pedido: los insumos de la receta de
-        cada partida y, en lo que lleva existencias propias, el producto mismo. Cada devolución deja
-        su movimiento en la bitácora. No hace commit: va en la misma transacción que la cancelación.
+        Qué hay que devolver al inventario por este pedido: los insumos de la receta de cada partida
+        y, en lo que lleva existencias propias, el producto mismo. Devuelve líneas
+        `{product_id, quantity, note}` que la cola aplica (`orders/stock_returns.py`).
 
-        Se calcula con la receta de hoy: si cambió desde la venta, la devolución es aproximada.
+        Solo LEE: no bloquea nada, así que cancelar no espera a ningún otro pedido. Se calcula con la
+        receta de hoy y queda fijado en el trabajo: si la receta cambia después, ese trabajo no se
+        recalcula. Si la receta cambió desde la venta, la devolución es aproximada.
         """
         business_type = self._business_type_of(order.tenant_id)
         note = f"Devolución por cancelar el pedido {order.id}"
-
-        def give_back(product: Product, quantity: int, why: str) -> None:
-            before = product.inventory_count
-            product.inventory_count = before + quantity
-            self.db.add(InventoryTransaction(
-                product_id=product.id,
-                tenant_id=order.tenant_id,
-                action="restock",
-                quantity_change=quantity,
-                quantity_before=before,
-                quantity_after=product.inventory_count,
-                user_id=user_id,
-                notes=why,
-            ))
+        lines: list[dict] = []
 
         for item in order.items:
             # Sin filtrar por is_deleted: un producto dado de baja después también recupera lo suyo.
             product = (
                 self.db.query(Product)
                 .filter(Product.id == item.product_id, Product.tenant_id == order.tenant_id)
-                .with_for_update()
                 .first()
             )
             if product is None:
                 continue
 
             if tracks_stock(business_type, product.product_type):
-                give_back(product, item.quantity, f"{note} (producto final)")
+                lines.append({"product_id": product.id, "quantity": item.quantity, "note": f"{note} (producto final)"})
 
             recipes = (
                 self.db.query(ProductRecipe)
@@ -673,14 +662,13 @@ class OrderService:
                 .all()
             )
             for rec in recipes:
-                insumo = (
-                    self.db.query(Product)
-                    .filter(Product.id == rec.insumo_product_id, Product.tenant_id == order.tenant_id)
-                    .with_for_update()
-                    .first()
-                )
-                if insumo is not None:
-                    give_back(insumo, rec.quantity * item.quantity, f"{note} ('{product.name}')")
+                lines.append({
+                    "product_id": rec.insumo_product_id,
+                    "quantity": rec.quantity * item.quantity,
+                    "note": f"{note} ('{product.name}')",
+                })
+
+        return lines
 
     def online_queue(self, tenant_id: str, closed_hours: int = 24) -> OrdersQueueResponse:
         """El tablero de órdenes: lo que sigue en marcha y lo cerrado en las últimas horas."""
@@ -753,7 +741,14 @@ class OrderService:
         if reopens_payment or reopens_delivery or (was_canceled and not will_cancel):
             raise OrderCanceledError(order_id)
         if will_cancel and not was_canceled:
-            self._return_stock(order, user_id)
+            # No se toca el inventario aquí: queda UN trabajo en la cola, en la misma transacción que
+            # la cancelación (`orders/stock_returns.py`). Así cancelar no espera a otros pedidos que
+            # comparten insumos, y el trabajo es único por pedido aunque la petición se repita.
+            lines = self._plan_return(order)
+            if lines:
+                enqueue_stock_return(
+                    self.db, tenant_id=order.tenant_id, order_id=order.id, lines=lines, user_id=user_id,
+                )
 
         if new_status is not None:
             order.status = new_status
