@@ -71,8 +71,10 @@ class BillingService:
             mode="subscription",
             customer=customer_id,
             line_items=[{"price": price_id, "quantity": 1}],
-            success_url=f"{settings.APP_URL}/dashboard?suscripcion=ok",
-            cancel_url=f"{settings.APP_URL}/dashboard?suscripcion=cancelada",
+            # De vuelta a la página de Suscripción: es la que lee `?suscripcion=` y avisa del
+            # resultado. Al Inicio se perdía el aviso.
+            success_url=f"{settings.APP_URL}/dashboard/suscripcion?suscripcion=ok",
+            cancel_url=f"{settings.APP_URL}/dashboard/suscripcion?suscripcion=cancelada",
             # El tenant viaja en los metadatos para poder identificarlo al
             # recibir el webhook, que llega sin sesión ni token.
             metadata={"tenant_id": tenant.id, "plan": plan},

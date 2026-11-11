@@ -246,3 +246,78 @@ class TestEspejoDelEstado:
             "items": {"data": [{"price": {"id": "price_p"}}]},
         })
         assert plan == "pro"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Checkout: cada cobro queda a nombre del negocio de la sesión
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestCheckout:
+    def _servicio(self, monkeypatch, tenant):
+        from billing import service as mod
+
+        monkeypatch.setattr(
+            type(mod.settings), "stripe_price_by_plan",
+            property(lambda self: {"starter": "price_s", "pro": "price_p", "enterprise": "price_e"}),
+        )
+        monkeypatch.setattr(mod.settings, "APP_URL", "https://kard.test")
+
+        llamadas = {}
+
+        def crear_sesion(**kw):
+            llamadas["sesion"] = kw
+            return SimpleNamespace(id="cs_1", url="https://checkout.stripe.test/cs_1")
+
+        def crear_cliente(**kw):
+            llamadas["cliente"] = kw
+            return SimpleNamespace(id="cus_nuevo")
+
+        falso = SimpleNamespace(
+            checkout=SimpleNamespace(Session=SimpleNamespace(create=crear_sesion)),
+            Customer=SimpleNamespace(create=crear_cliente, retrieve=lambda cid: SimpleNamespace(id=cid)),
+        )
+        monkeypatch.setattr(BillingService, "_stripe", staticmethod(lambda: falso))
+        return BillingService(FakeDB(tenant=tenant)), llamadas
+
+    def test_el_cobro_lleva_el_negocio_de_la_sesion(self, monkeypatch):
+        """El webhook llega sin sesión: el negocio viaja en los metadatos del cobro y de la suscripción."""
+        tenant = tenant_demo(id="t_aaa")
+        svc, llamadas = self._servicio(monkeypatch, tenant)
+
+        r = svc.create_checkout_session("pro", SimpleNamespace(tenant_id="t_aaa"))
+
+        sesion = llamadas["sesion"]
+        assert r.checkout_url == "https://checkout.stripe.test/cs_1" and r.plan == "pro"
+        assert sesion["mode"] == "subscription"
+        assert sesion["line_items"] == [{"price": "price_p", "quantity": 1}]
+        assert sesion["metadata"] == {"tenant_id": "t_aaa", "plan": "pro"}
+        assert sesion["subscription_data"]["metadata"] == {"tenant_id": "t_aaa", "plan": "pro"}
+
+    def test_cada_negocio_tiene_su_propio_cliente_de_stripe(self, monkeypatch):
+        tenant = tenant_demo(id="t_aaa", stripe_customer_id=None)
+        svc, llamadas = self._servicio(monkeypatch, tenant)
+
+        svc.create_checkout_session("starter", SimpleNamespace(tenant_id="t_aaa"))
+
+        assert llamadas["cliente"]["metadata"] == {"tenant_id": "t_aaa"}
+        assert tenant.stripe_customer_id == "cus_nuevo"
+        assert llamadas["sesion"]["customer"] == "cus_nuevo"
+
+    def test_un_segundo_pago_reusa_el_cliente_del_negocio(self, monkeypatch):
+        tenant = tenant_demo(id="t_aaa", stripe_customer_id="cus_existente")
+        svc, llamadas = self._servicio(monkeypatch, tenant)
+
+        svc.create_checkout_session("pro", SimpleNamespace(tenant_id="t_aaa"))
+
+        assert "cliente" not in llamadas
+        assert llamadas["sesion"]["customer"] == "cus_existente"
+
+    def test_stripe_regresa_a_la_pagina_de_suscripcion(self, monkeypatch):
+        """Es la página que lee `?suscripcion=` y avisa; al Inicio el aviso se perdía."""
+        svc, llamadas = self._servicio(monkeypatch, tenant_demo())
+
+        svc.create_checkout_session("pro", SimpleNamespace(tenant_id="t_aaa"))
+
+        assert llamadas["sesion"]["success_url"] == "https://kard.test/dashboard/suscripcion?suscripcion=ok"
+        assert llamadas["sesion"]["cancel_url"] == "https://kard.test/dashboard/suscripcion?suscripcion=cancelada"
