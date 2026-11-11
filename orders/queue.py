@@ -4,6 +4,11 @@
 QUEUE_STATES = ("preparing", "ready", "in_transit", "completed", "canceled")
 
 
+def is_canceled(status: str, fulfillment_status: str) -> bool:
+    """Un pedido está cancelado si lo está su pago o su entrega."""
+    return status == "canceled" or fulfillment_status == "canceled"
+
+
 def queue_state(status: str, fulfillment_status: str) -> str:
     """
     El estado de un pedido en una sola palabra.
@@ -12,7 +17,7 @@ def queue_state(status: str, fulfillment_status: str) -> str:
     columna: lo cancelado gana sobre todo lo demás, y `fulfilled` (un valor histórico del pago que
     significaba "ya entregado") cuenta como completado aunque su entrega no se haya movido.
     """
-    if status == "canceled" or fulfillment_status == "canceled":
+    if is_canceled(status, fulfillment_status):
         return "canceled"
     if status == "fulfilled":
         return "completed"

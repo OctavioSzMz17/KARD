@@ -41,6 +41,7 @@ from core.exceptions import (
     InvalidRecipeError,
     InvalidResetTokenError,
     NoRegisterError,
+    OrderCanceledError,
     OrderNotFoundError,
     OrderStockConflictError,
     PlanLimitExceededError,
@@ -212,6 +213,12 @@ async def cart_unavailable_exception_handler(request: Request, exc: CartUnavaila
 @app.exception_handler(OrderNotFoundError)
 async def order_not_found_exception_handler(request: Request, exc: OrderNotFoundError):
     return JSONResponse(status_code=404, content=_error("Pedido no encontrado"))
+
+
+@app.exception_handler(OrderCanceledError)
+async def order_canceled_exception_handler(request: Request, exc: OrderCanceledError):
+    """Reabrir un pedido cancelado → 409."""
+    return _coded(409, "ORDER_CANCELED", "Un pedido cancelado no se puede reabrir: captura uno nuevo")
 
 
 @app.exception_handler(InvalidRecipeError)

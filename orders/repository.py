@@ -77,18 +77,23 @@ class OrderRepository:
 
     # ── Vista del negocio (ventas) ────────────────────────────────────
 
-    def get_by_id_for_tenant(self, order_id: str, tenant_id: str) -> Optional[Order]:
+    def get_by_id_for_tenant(self, order_id: str, tenant_id: str, lock: bool = False) -> Optional[Order]:
         """
         Fetch one of *this tenant's* orders. The tenant_id guard is what stops
         a business from touching another business's order — returns None
         (→ 404) rather than 403, same as the consumer-side guard.
+
+        `lock=True` bloquea la fila del pedido (y solo ella) hasta el commit: dos cancelaciones
+        a la vez no pueden devolver el inventario dos veces.
         """
-        return (
+        q = (
             self.db.query(Order)
             .options(joinedload(Order.items), joinedload(Order.tenant))
             .filter(Order.id == order_id, Order.tenant_id == tenant_id)
-            .first()
         )
+        if lock:
+            q = q.with_for_update(of=Order)
+        return q.first()
 
     def _sales_query(
         self,

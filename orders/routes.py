@@ -24,6 +24,7 @@ from core.dependencies import (
     CurrentConsumer,
     CurrentUser,
     get_current_consumer,
+    get_current_user,
     get_tenant_id,
     require_permission,
 )
@@ -224,7 +225,7 @@ def business_orders_queue(
 def update_sale_status(
     order_id: str,
     payload: UpdateSaleStatusRequest,
-    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SaleResponse:
     """
@@ -232,9 +233,12 @@ def update_sale_status(
 
     El pago y la entrega se mueven por separado — o juntos en una llamada —
     porque son ejes independientes: cobrar una mesa no la sirve.
+
+    Cancelar devuelve el inventario (queda a nombre de quien cancela); un cancelado no se reabre (409).
     """
     return OrderService(db).update_sale_status(
-        tenant_id, order_id, payload.status, payload.fulfillment_status
+        current_user.tenant_id, order_id, payload.status, payload.fulfillment_status,
+        user_id=current_user.user_id,
     )
 
 

@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from cash.repository import CashRepository
 from core.exceptions import (
+    OrderCanceledError,
     CartEmptyError,
     CashClosedError,
     IdempotencyConflictError,
@@ -62,7 +63,7 @@ from orders.models import (
 )
 from orders.money import ZERO, change_for, discount_amount, order_total, to_money
 from orders.stats import average_ticket, fill_days, local_today, window_start_utc
-from orders.queue import queue_state
+from orders.queue import is_canceled, queue_state
 from orders.repository import ACTIVE_FULFILLMENT, OrderRepository
 from products.stock_policy import tracks_stock
 from storefront.repository import StorefrontRepository
@@ -624,6 +625,63 @@ class OrderService:
             page_size=page_size,
         )
 
+    def _return_stock(self, order: Order, user_id: str | None) -> None:
+        """
+        Devuelve al inventario lo que descontó la venta de este pedido: los insumos de la receta de
+        cada partida y, en lo que lleva existencias propias, el producto mismo. Cada devolución deja
+        su movimiento en la bitácora. No hace commit: va en la misma transacción que la cancelación.
+
+        Se calcula con la receta de hoy: si cambió desde la venta, la devolución es aproximada.
+        """
+        business_type = self._business_type_of(order.tenant_id)
+        note = f"Devolución por cancelar el pedido {order.id}"
+
+        def give_back(product: Product, quantity: int, why: str) -> None:
+            before = product.inventory_count
+            product.inventory_count = before + quantity
+            self.db.add(InventoryTransaction(
+                product_id=product.id,
+                tenant_id=order.tenant_id,
+                action="restock",
+                quantity_change=quantity,
+                quantity_before=before,
+                quantity_after=product.inventory_count,
+                user_id=user_id,
+                notes=why,
+            ))
+
+        for item in order.items:
+            # Sin filtrar por is_deleted: un producto dado de baja después también recupera lo suyo.
+            product = (
+                self.db.query(Product)
+                .filter(Product.id == item.product_id, Product.tenant_id == order.tenant_id)
+                .with_for_update()
+                .first()
+            )
+            if product is None:
+                continue
+
+            if tracks_stock(business_type, product.product_type):
+                give_back(product, item.quantity, f"{note} (producto final)")
+
+            recipes = (
+                self.db.query(ProductRecipe)
+                .filter(
+                    ProductRecipe.final_product_id == product.id,
+                    ProductRecipe.tenant_id == order.tenant_id,
+                )
+                .all()
+            )
+            for rec in recipes:
+                insumo = (
+                    self.db.query(Product)
+                    .filter(Product.id == rec.insumo_product_id, Product.tenant_id == order.tenant_id)
+                    .with_for_update()
+                    .first()
+                )
+                if insumo is not None:
+                    give_back(insumo, rec.quantity * item.quantity, f"{note} ('{product.name}')")
+
     def online_queue(self, tenant_id: str, closed_hours: int = 24) -> OrdersQueueResponse:
         """El tablero de órdenes: lo que sigue en marcha y lo cerrado en las últimas horas."""
         closed_since = datetime.now(timezone.utc) - timedelta(hours=closed_hours)
@@ -667,16 +725,35 @@ class OrderService:
         order_id: str,
         new_status: str | None = None,
         new_fulfillment_status: str | None = None,
+        user_id: str | None = None,
     ) -> SaleResponse:
         """
         Mueve el estado de pago, el de entrega, o ambos.
 
         Son ejes independientes: cobrar una mesa no la sirve, y servirla no
         la cobra. El validador del request ya garantiza que venga al menos uno.
+
+        Cancelar un pedido devuelve al inventario lo que se descontó al venderlo, una sola vez. Un
+        cancelado no se reabre: volver a descontar podría no alcanzar, y los cancelados de antes
+        de esta regla nunca devolvieron nada, así que reabrirlos descontaría de más.
         """
-        order = self.repo.get_by_id_for_tenant(order_id, tenant_id)
+        order = self.repo.get_by_id_for_tenant(order_id, tenant_id, lock=True)
         if order is None:
             raise OrderNotFoundError("Pedido no encontrado")
+
+        was_canceled = is_canceled(order.status, order.fulfillment_status)
+        will_cancel = is_canceled(
+            new_status if new_status is not None else order.status,
+            new_fulfillment_status if new_fulfillment_status is not None else order.fulfillment_status,
+        )
+        # Ningún eje puede salir de "cancelado": si no, quedaría un pedido que el tablero ve cancelado
+        # y el reporte cuenta como venta (o al revés).
+        reopens_payment = order.status == "canceled" and new_status not in (None, "canceled")
+        reopens_delivery = order.fulfillment_status == "canceled" and new_fulfillment_status not in (None, "canceled")
+        if reopens_payment or reopens_delivery or (was_canceled and not will_cancel):
+            raise OrderCanceledError(order_id)
+        if will_cancel and not was_canceled:
+            self._return_stock(order, user_id)
 
         if new_status is not None:
             order.status = new_status

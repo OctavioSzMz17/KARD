@@ -94,6 +94,15 @@ class OrderNotFoundError(Exception):
     """Raised when an order does not exist or belongs to a different consumer."""
 
 
+class OrderCanceledError(Exception):
+    """
+    Se intentó reabrir un pedido cancelado.
+
+    Cancelar devuelve al inventario lo que se descontó; reabrir tendría que volver a descontarlo
+    (y quizá ya no alcance). Un cancelado es definitivo: si fue un error, se captura uno nuevo.
+    """
+
+
 class InvalidRecipeError(Exception):
     """
     Raised when a recipe item is invalid: the parent is not a 'final' product,
